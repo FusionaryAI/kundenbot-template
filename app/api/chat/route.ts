@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
     const settings = await getTenantSettings(tenant.id);
 
     // --- RAG / Wissenssuche ---
-    let matches = [];
+    let matches: { id: string; content: string; similarity: number }[] = [];
     try {
       matches = await ragSearch(tenant.id, message, 4);
     } catch (e) {
@@ -153,6 +153,7 @@ Bitte antworte strukturiert, sachlich, hilfreich und ohne Begrüßung.`,
         },
       ],
     });
+
 
     const text =
       completion.choices[0]?.message?.content ??
