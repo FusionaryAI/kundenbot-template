@@ -2,9 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supaAdmin } from "@/lib/db";
 
+type RagMatch = {
+  id: string;
+  content: string;
+  similarity: number;
+};
+
+type TenantSettings = {
+  welcome_message: string;
+  fallback_message: string;
+};
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
+
+// Minimal erforderliche Ähnlichkeit für ein „gültiges“ Match
+const MIN_SIMILARITY = 0.75;
 
 // --- Fetch Tenant ---
 async function getTenantBySlug(slug: string) {
@@ -13,15 +27,18 @@ async function getTenantBySlug(slug: string) {
     .select("*")
     .eq("slug", slug)
     .single();
+
   if (error || !data) {
-    console.error("getTenantBySlug error:", error);
+    console.error("getTenantBySlug error:", error, "for slug:", slug);
     throw new Error("Tenant not found");
   }
-  return data; // { id, name, slug }
+
+  // data: { id, name, slug, ... }
+  return data;
 }
 
 // --- Fetch Tenant Settings ---
-async function getTenantSettings(tenantId: string) {
+async function getTenantSettings(tenantId: string): Promise<TenantSettings> {
   const { data, error } = await supaAdmin
     .from("tenant_settings")
     .select("welcome_message, fallback_message")
@@ -29,7 +46,11 @@ async function getTenantSettings(tenantId: string) {
     .single();
 
   if (error || !data) {
-    console.warn("tenant_settings not found, using defaults");
+    console.warn(
+      "tenant_settings not found for tenant_id:",
+      tenantId,
+      "— using defaults",
+    );
     return {
       welcome_message: "Wie kann ich Ihnen helfen?",
       fallback_message:
@@ -37,13 +58,17 @@ async function getTenantSettings(tenantId: string) {
     };
   }
 
-  return data;
+  return data as TenantSettings;
 }
 
 // --- Vector RAG Search ---
-async function ragSearch(tenantId: string, query: string, k = 4) {
+async function ragSearch(
+  tenantId: string,
+  query: string,
+  k = 4,
+): Promise<RagMatch[]> {
   const emb = await openai.embeddings.create({
-    model: "text-embedding-3-small", // 1536 Dimensionen
+    model: "text-embedding-3-small", // 1536 Dimensionen, passt zu vector(1536)
     input: query,
   });
 
@@ -60,14 +85,10 @@ async function ragSearch(tenantId: string, query: string, k = 4) {
     throw new Error("Vector search failed");
   }
 
-  return (data ?? []) as {
-    id: string;
-    content: string;
-    similarity: number;
-  }[];
+  return (data ?? []) as RagMatch[];
 }
 
-// --- System Prompt (neutral, für ALLE Branchen) ---
+// --- System Prompt (neutral, für alle Branchen) ---
 function systemPrompt(companyName: string, fallbackMessage: string) {
   return `Rolle:
 Du bist ein professioneller digitaler Assistent des Unternehmens "${companyName}".
@@ -75,7 +96,7 @@ Du bist ein professioneller digitaler Assistent des Unternehmens "${companyName}
 REGELN:
 - Antworte klar, höflich und direkt auf die Frage.
 - Keine frei erfundenen Informationen.
-- Wenn etwas nicht bekannt ist: Nutze sinngemäß: "${fallbackMessage}".
+- Wenn etwas nicht bekannt ist oder im Unternehmenswissen nicht vorkommt: Nutze sinngemäß: "${fallbackMessage}".
 - Verwende kurze Absätze.
 - Listen nur, wenn sinnvoll (max. 5–7 Punkte).
 - Keine Begrüßung, kein Smalltalk, keine Abschlussfloskeln.
@@ -84,56 +105,106 @@ ZIEL:
 Hilf der anfragenden Person schnell und zuverlässig mit Informationen des Unternehmens weiter.`;
 }
 
-// --- Haupt-API ---
+// --- Haupt-Handler (POST) ---
 export async function POST(req: NextRequest) {
   try {
     // Body lesen
     let body: any = {};
     try {
       body = await req.json();
-    } catch {}
+    } catch {
+      body = {};
+    }
 
     const url = new URL(req.url);
 
     const message =
-      body.message ??
+      (body.message as string | undefined) ??
       url.searchParams.get("message") ??
       "";
 
+    // Slug aus Body / Query / Header lesen – KEIN Fallback mehr!
     const slug =
-      body.slug ??
+      (body.slug as string | undefined) ??
       url.searchParams.get("slug") ??
       req.headers.get("x-tenant-slug") ??
-      "kunden-muster"; // Fallback für Demo
+      undefined;
 
     if (!message) {
       return NextResponse.json(
         { error: "message required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    // Datenbank: Tenant + Settings
+    if (!slug) {
+      console.error("[API] Missing slug in request");
+      return NextResponse.json(
+        { error: "slug required" },
+        { status: 400 },
+      );
+    }
+
+    console.log("[API] Incoming request", {
+      slug,
+      messagePreview: message.slice(0, 80),
+    });
+
+    // Tenant + Settings laden
     const tenant = await getTenantBySlug(slug);
     const settings = await getTenantSettings(tenant.id);
 
     // --- RAG / Wissenssuche ---
-    let matches: { id: string; content: string; similarity: number }[] = [];
+    let matches: RagMatch[] = [];
+
     try {
       matches = await ragSearch(tenant.id, message, 4);
+      console.log("[RAG] raw matches:", matches.map((m) => ({
+        id: m.id,
+        similarity: m.similarity,
+      })));
     } catch (e) {
-      console.warn("ragSearch failed:", e);
+      console.error("[RAG] error while calling match_embeddings:", e);
+      matches = [];
     }
 
-    const kb =
-      matches.length > 0
-        ? matches.map((m) => `- ${m.content}`).join("\n")
-        : "- Es sind noch keine Wissensinhalte hinterlegt.";
-
-    const system = systemPrompt(
-      tenant.name,
-      settings.fallback_message
+    // Matches nach Threshold filtern
+    const relevantMatches = matches.filter(
+      (m) => typeof m.similarity === "number" && m.similarity >= MIN_SIMILARITY,
     );
+
+    console.log("[RAG] relevant matches after threshold:", {
+      count: relevantMatches.length,
+      threshold: MIN_SIMILARITY,
+    });
+
+    // Debug-Mode: ?debug=1 gibt Rohdaten zurück
+    const debug = url.searchParams.get("debug");
+    if (debug === "1") {
+      return NextResponse.json({
+        slug,
+        tenant,
+        settings,
+        matches,
+        relevantMatches,
+      });
+    }
+
+    // Wenn kein relevanter Kontext gefunden ⇒ direkt Fallback ausgeben
+    if (relevantMatches.length === 0) {
+      console.log("[RAG] no relevant knowledge found, using fallback_message");
+      return NextResponse.json({
+        text: settings.fallback_message,
+        welcome_message: settings.welcome_message,
+        from_kb: false,
+      });
+    }
+
+    const kb = relevantMatches
+      .map((m) => `- ${m.content}`)
+      .join("\n");
+
+    const system = systemPrompt(tenant.name, settings.fallback_message);
 
     // --- LLM-Antwort generieren ---
     const completion = await openai.chat.completions.create({
@@ -154,7 +225,6 @@ Bitte antworte strukturiert, sachlich, hilfreich und ohne Begrüßung.`,
       ],
     });
 
-
     const text =
       completion.choices[0]?.message?.content ??
       settings.fallback_message;
@@ -162,12 +232,13 @@ Bitte antworte strukturiert, sachlich, hilfreich und ohne Begrüßung.`,
     return NextResponse.json({
       text,
       welcome_message: settings.welcome_message,
+      from_kb: true,
     });
   } catch (e: any) {
     console.error("API ERROR:", e);
     return NextResponse.json(
       { ok: false, error: e?.message ?? "server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
