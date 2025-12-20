@@ -19,8 +19,9 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// Minimal erforderliche Ähnlichkeit für ein „gültiges“ Match
-const MIN_SIMILARITY = 0.75;
+// Soft-Threshold (nur als Orientierung). Wir fallen nicht mehr hart zurück,
+// solange wir überhaupt Matches haben.
+const MIN_SIMILARITY = 0.20;
 
 // --- Fetch Tenant ---
 async function getTenantBySlug(slug: string) {
@@ -35,7 +36,6 @@ async function getTenantBySlug(slug: string) {
     throw new Error("Tenant not found");
   }
 
-  // data: { id, name, slug, ... }
   return data;
 }
 
@@ -70,7 +70,7 @@ async function ragSearch(
   k = 4,
 ): Promise<RagMatch[]> {
   const emb = await openai.embeddings.create({
-    model: "text-embedding-3-small", // 1536 Dimensionen, passt zu vector(1536)
+    model: "text-embedding-3-small",
     input: query,
   });
 
@@ -125,7 +125,6 @@ export async function POST(req: NextRequest) {
       url.searchParams.get("message") ??
       "";
 
-    // Slug aus Body / Query / Header lesen – KEIN Fallback mehr!
     const slug =
       (body.slug as string | undefined) ??
       url.searchParams.get("slug") ??
@@ -133,18 +132,12 @@ export async function POST(req: NextRequest) {
       undefined;
 
     if (!message) {
-      return NextResponse.json(
-        { error: "message required" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "message required" }, { status: 400 });
     }
 
     if (!slug) {
       console.error("[API] Missing slug in request");
-      return NextResponse.json(
-        { error: "slug required" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "slug required" }, { status: 400 });
     }
 
     console.log("[API] Incoming request", {
@@ -158,43 +151,42 @@ export async function POST(req: NextRequest) {
 
     // --- RAG / Wissenssuche ---
     let matches: RagMatch[] = [];
-
     try {
       matches = await ragSearch(tenant.id, message, 4);
-      console.log("[RAG] raw matches:", matches.map((m) => ({
-        id: m.id,
-        similarity: m.similarity,
-      })));
+      console.log(
+        "[RAG] raw matches:",
+        matches.map((m) => ({ id: m.id, similarity: m.similarity })),
+      );
     } catch (e) {
       console.error("[RAG] error while calling match_embeddings:", e);
       matches = [];
     }
 
-    // Matches nach Threshold filtern
-    const relevantMatches = matches.filter(
-      (m) => typeof m.similarity === "number" && m.similarity >= MIN_SIMILARITY,
+    // Nur sinnvolle Matches behalten
+    const scored = (matches ?? []).filter(
+      (m) =>
+        typeof m.similarity === "number" &&
+        !!m.content &&
+        m.content.trim().length > 0,
     );
-
-    console.log("[RAG] relevant matches after threshold:", {
-      count: relevantMatches.length,
-      threshold: MIN_SIMILARITY,
-    });
 
     // Debug-Mode: ?debug=1 gibt Rohdaten zurück
     const debug = url.searchParams.get("debug");
     if (debug === "1") {
+      const relevantMatches = scored.filter((m) => m.similarity >= MIN_SIMILARITY);
       return NextResponse.json({
         slug,
         tenant,
         settings,
-        matches,
+        matches: scored,
         relevantMatches,
+        threshold: MIN_SIMILARITY,
       });
     }
 
-    // Wenn kein relevanter Kontext gefunden ⇒ direkt Fallback ausgeben
-    if (relevantMatches.length === 0) {
-      console.log("[RAG] no relevant knowledge found, using fallback_message");
+    // Wenn wirklich gar keine Matches aus der DB kommen ⇒ Fallback
+    if (scored.length === 0) {
+      console.log("[RAG] no matches returned from vector search, using fallback_message");
       return NextResponse.json({
         text: settings.fallback_message,
         welcome_message: settings.welcome_message,
@@ -202,10 +194,23 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const kb = relevantMatches
-      .map((m) => `- ${m.content}`)
-      .join("\n");
+    // Soft-Filter: bevorzugt >= Threshold, sonst Top-K (damit Demo nicht “stumm” wird)
+    const above = scored
+      .filter((m) => m.similarity >= MIN_SIMILARITY)
+      .sort((a, b) => b.similarity - a.similarity);
 
+    const top = (above.length > 0 ? above : scored)
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, 4);
+
+    console.log("[RAG] using matches for KB:", {
+      usedCount: top.length,
+      threshold: MIN_SIMILARITY,
+      usedSimilarities: top.map((m) => m.similarity),
+      usedIds: top.map((m) => m.id),
+    });
+
+    const kb = top.map((m) => `- ${m.content}`).join("\n");
     const system = systemPrompt(tenant.name, settings.fallback_message);
 
     // --- LLM-Antwort generieren ---
@@ -228,8 +233,7 @@ Bitte antworte strukturiert, sachlich, hilfreich und ohne Begrüßung.`,
     });
 
     const text =
-      completion.choices[0]?.message?.content ??
-      settings.fallback_message;
+      completion.choices[0]?.message?.content ?? settings.fallback_message;
 
     return NextResponse.json({
       text,
