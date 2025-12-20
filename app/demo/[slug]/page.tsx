@@ -1,47 +1,52 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 
 type Message = { role: "user" | "assistant"; text: string };
 
-// Slug → Praxisname
+// Optional: Slug → Anzeigename (rein visuell)
 const TENANT_LABELS: Record<string, string> = {
-  "hausarzt-painten": "Praxis Dr. Kopfmüller",
-  // weitere Kunden:
-  // "praxis-muster": "Praxis Dr. Muster",
+  "hausarzt-painten": "Arztpraxis",
+  "muster-demo": "Beispielkunde",
 };
 
-function getPracticeName(slug?: string) {
-  if (!slug) return "Ihrer Praxis";
-  return TENANT_LABELS[slug] ?? "Ihrer Praxis";
+function getTenantLabel(slug?: string) {
+  if (!slug) return "Kunde";
+  return TENANT_LABELS[slug] ?? "Kunde";
 }
 
-// Wrapper, damit TS nicht rummeckert
+// Wrapper, damit TS nicht meckert
 const Markdown = ReactMarkdown as any;
 
 export default function DemoPage() {
   const params = useParams<{ slug?: string }>();
   const slug = params.slug;
-  const practiceName = getPracticeName(slug);
+
+  const tenantLabel = useMemo(() => getTenantLabel(slug), [slug]);
 
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSending, setIsSending] = useState(false);
 
-  async function send() {
-    const q = input.trim();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    // immer nach unten scrollen bei neuen Messages
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, isSending]);
+
+  async function send(textOverride?: string) {
+    const q = (textOverride ?? input).trim();
     if (!q || isSending) return;
 
     if (!slug) {
       setMessages((m) => [
         ...m,
-        {
-          role: "assistant",
-          text:
-            "Es liegt ein Konfigurationsfehler vor: kein Praxis-Slug gesetzt.",
-        },
+        { role: "assistant", text: "Konfigurationsfehler: kein Tenant-Slug gesetzt." },
       ]);
       return;
     }
@@ -63,13 +68,13 @@ export default function DemoPage() {
       const text = data.text ?? "Keine Antwort.";
 
       setMessages((m) => [...m, { role: "assistant", text }]);
-    } catch (e) {
+    } catch {
       setMessages((m) => [
         ...m,
         {
           role: "assistant",
           text:
-            "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut oder wenden Sie sich direkt an die Praxis.",
+            "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut oder kontaktieren Sie das Team direkt.",
         },
       ]);
     } finally {
@@ -84,176 +89,187 @@ export default function DemoPage() {
     }
   }
 
+  const quickChips = [
+    { label: "Standardfragen automatisch beantworten", text: "Was kannst du grundsätzlich für mich tun?" },
+    { label: "Anfragen strukturiert übergeben", text: "Wie läuft eine Anfrage strukturiert ab?" },
+    { label: "Weniger Telefonaufkommen", text: "Wie entlastet der Assistent das Telefon?" },
+  ];
+
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-8 lg:py-12">
-        {/* Header */}
-        <header className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end">
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
-              Fusionary AI • Digitaler Assistent
-            </p>
-
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-              Digitaler Assistent der {practiceName}
-            </h1>
-
-            <p className="mt-2 max-w-xl text-sm text-slate-600">
-              KI-gestützter Praxisassistent für Terminfragen, Leistungen,
-              Kontakt und mehr – individuell auf die Praxis abgestimmt.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 text-white text-sm font-bold shadow">
-              AI
-            </div>
-            <div className="flex flex-col text-right">
-              <span className="text-sm font-medium">Praxis-Assistent</span>
-              <span className="text-xs text-emerald-600">Online</span>
-            </div>
-          </div>
-        </header>
-
-        {/* Layout: Chat links, Info rechts */}
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1fr)]">
-          {/* Chatfenster */}
-          <section className="rounded-2xl border border-slate-200 bg-white shadow-md">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                <span className="text-sm font-medium text-slate-800">
-                  Chat mit der Praxis
-                </span>
-              </div>
-              <span className="text-xs text-slate-500">
-                Antworten in wenigen Sekunden
-              </span>
+    <main className="min-h-screen bg-[#f6f7f7] text-slate-900">
+      <div className="mx-auto max-w-5xl px-4 py-10 sm:py-14">
+        {/* Card */}
+        <section className="rounded-[32px] bg-white/60 p-6 shadow-sm ring-1 ring-black/5 backdrop-blur sm:p-10">
+          {/* Header */}
+          <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="text-[22px] font-semibold tracking-tight text-slate-900 sm:text-2xl">
+                Live-Chat auf Ihrer Website
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                Beispieldialog · Besucher: {tenantLabel}
+              </p>
             </div>
 
-            <div className="flex h-[70vh] flex-col">
-              {/* Nachrichten */}
-              <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-                {messages.length === 0 && (
-                  <p className="text-sm text-slate-500">
-                    Stellen Sie eine Frage zur Praxis (Öffnungszeiten,
-                    Leistungen, Kontakt, Rezepte …).
-                  </p>
-                )}
+            <div className="inline-flex items-center gap-2 self-start rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 ring-1 ring-emerald-100">
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+              Online · 24/7
+            </div>
+          </header>
 
-                {messages.map((m, i) => (
-                  <div
-                    key={i}
-                    className={`flex ${
-                      m.role === "user" ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    <div
-                      className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
-                        m.role === "user"
-                          ? "bg-emerald-500 text-white"
-                          : "bg-slate-100 text-slate-900"
-                      }`}
-                    >
-                      {m.role === "assistant" ? (
-                        <div className="whitespace-pre-wrap leading-relaxed">
-                          <Markdown
-                            components={{
-                              ul: ({ children }: any) => (
-                                <ul className="list-disc ml-4 space-y-2">
-                                  {children}
-                                </ul>
-                              ),
-                              ol: ({ children }: any) => (
-                                <ol className="list-decimal ml-4 space-y-2">
-                                  {children}
-                                </ol>
-                              ),
-                              li: ({ children }: any) => (
-                                <li className="ml-1 leading-relaxed">
-                                  {children}
-                                </li>
-                              ),
-                              p: ({ children }: any) => (
-                                <p className="mb-2 leading-relaxed">
-                                  {children}
-                                </p>
-                              ),
-                            }}
-                          >
-                            {m.text}
-                          </Markdown>
-                        </div>
-                      ) : (
-                        <span className="whitespace-pre-wrap">{m.text}</span>
-                      )}
-                    </div>
+          {/* Chat Area */}
+          <div className="mt-8 space-y-6">
+            {/* Chat bubbles container */}
+            <div
+              ref={scrollRef}
+              className="space-y-6 rounded-[28px] bg-white p-6 shadow-sm ring-1 ring-black/5 sm:p-8"
+              style={{ minHeight: 340 }}
+            >
+              {/* Demo-Intro (wenn noch keine Nachrichten) */}
+              {messages.length === 0 && (
+                <>
+                  <div className="rounded-[22px] bg-white px-6 py-5 ring-1 ring-black/5">
+                    <p className="text-[15px] leading-relaxed text-slate-900">
+                      <span className="font-semibold">Patient:</span>{" "}
+                      Kann ich online einen Termin vereinbaren und wie bestelle ich ein Rezept?
+                    </p>
                   </div>
-                ))}
-              </div>
 
-              {/* Eingabe */}
-              <div className="border-t border-slate-200 px-4 py-3">
-                <form
-                  className="flex gap-2"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    send();
-                  }}
+                  <div className="rounded-[22px] bg-white px-6 py-5 ring-1 ring-black/5">
+                    <p className="text-[15px] leading-relaxed text-slate-900">
+                      <span className="font-semibold">Praxis-Assistent:</span>{" "}
+                      Sie können uns Ihre Terminanfrage rund um die Uhr über das Formular senden.
+                      Wiederholungsrezepte können Sie bequem online bestellen – wir melden uns, sobald
+                      sie abholbereit sind.
+                    </p>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => send("Klingt perfekt. Wo finde ich das Formular?")}
+                      className="max-w-[86%] rounded-full bg-[#0b0b0c] px-6 py-4 text-[15px] font-medium text-white shadow-sm ring-1 ring-black/10 transition hover:opacity-95"
+                    >
+                      Klingt perfekt. Wo finde ich das Formular?
+                    </button>
+                  </div>
+
+                  <div className="rounded-[22px] bg-white px-6 py-5 ring-1 ring-black/5">
+                    <p className="text-[15px] leading-relaxed text-slate-900">
+                      <span className="font-semibold">Praxis-Assistent:</span>{" "}
+                      Ich öffne es Ihnen direkt hier – tragen Sie einfach kurz Ihre Daten ein, der
+                      Rest läuft automatisch über Ihr Praxisteam.
+                    </p>
+                  </div>
+
+                  <div className="pt-2" />
+                </>
+              )}
+
+              {/* Real chat messages */}
+              {messages.length > 0 && (
+                <>
+                  {messages.map((m, i) => {
+                    const isUser = m.role === "user";
+                    return (
+                      <div key={i} className={isUser ? "flex justify-end" : "flex justify-start"}>
+                        <div
+                          className={[
+                            "max-w-[86%] rounded-[22px] px-6 py-5 text-[15px] leading-relaxed ring-1",
+                            isUser
+                              ? "bg-[#0b0b0c] text-white ring-black/10"
+                              : "bg-white text-slate-900 ring-black/5",
+                          ].join(" ")}
+                        >
+                          {isUser ? (
+                            <span className="whitespace-pre-wrap">{m.text}</span>
+                          ) : (
+                            <div className="whitespace-pre-wrap">
+                              <Markdown
+                                components={{
+                                  ul: ({ children }: any) => (
+                                    <ul className="ml-5 list-disc space-y-2">{children}</ul>
+                                  ),
+                                  ol: ({ children }: any) => (
+                                    <ol className="ml-5 list-decimal space-y-2">{children}</ol>
+                                  ),
+                                  li: ({ children }: any) => (
+                                    <li className="leading-relaxed">{children}</li>
+                                  ),
+                                  p: ({ children }: any) => (
+                                    <p className="mb-2 leading-relaxed last:mb-0">{children}</p>
+                                  ),
+                                }}
+                              >
+                                {m.text}
+                              </Markdown>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* sending indicator */}
+                  {isSending && (
+                    <div className="flex justify-start">
+                      <div className="rounded-[22px] bg-white px-6 py-5 text-[15px] text-slate-600 ring-1 ring-black/5">
+                        Antwort wird erstellt…
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Chips */}
+            <div className="flex flex-wrap gap-3">
+              {quickChips.map((c) => (
+                <button
+                  key={c.label}
+                  type="button"
+                  onClick={() => send(c.text)}
+                  className="rounded-full bg-white px-5 py-3 text-sm text-slate-700 shadow-sm ring-1 ring-black/5 transition hover:bg-slate-50"
                 >
-                  <input
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Frage eingeben…"
-                    className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"
-                  />
-
-                  <button
-                    type="submit"
-                    disabled={isSending}
-                    className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSending ? "Senden…" : "Senden"}
-                  </button>
-                </form>
-
-                <p className="mt-1 text-[10px] text-right uppercase tracking-[0.2em] text-slate-400">
-                  Powered by Fusionary AI
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* rechte Info-Spalte */}
-          <aside className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-slate-800">
-                Was kann dieser Assistent?
-              </h2>
-              <p className="mt-2 text-sm text-slate-600">
-                Der Assistent beantwortet Patientenfragen basierend auf der
-                Praxiswebseite und weiteren Informationen.
-              </p>
-              <ul className="mt-3 space-y-1 text-sm text-slate-600">
-                <li>• Entlastet das Praxisteam</li>
-                <li>• Einheitliche Antworten, rund um die Uhr</li>
-                <li>• Individuell auf jede Praxis trainierbar</li>
-              </ul>
+                  {c.label}
+                </button>
+              ))}
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Hinweis
-              </h3>
-              <p className="mt-2">
-                Der Assistent ersetzt keine medizinische Beratung. In akuten
-                Fällen sollten Patient:innen direkt den ärztlichen Notdienst
-                oder den Rettungsdienst kontaktieren.
-              </p>
+            {/* Input */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <form
+                className="flex w-full items-center gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  send();
+                }}
+              >
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Nachricht eingeben…"
+                  className="h-12 w-full rounded-full bg-white px-5 text-sm text-slate-900 shadow-sm ring-1 ring-black/10 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                />
+
+                <button
+                  type="submit"
+                  disabled={isSending}
+                  className="h-12 shrink-0 rounded-full bg-[#0b0b0c] px-6 text-sm font-medium text-white shadow-sm ring-1 ring-black/10 transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSending ? "Senden…" : "Senden"}
+                </button>
+              </form>
             </div>
-          </aside>
-        </div>
+
+            {/* Footer */}
+            <div className="flex flex-col gap-2 pt-2 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+              <span>Integration auf Ihrer bestehenden Website</span>
+              <span>Fusionary AI – individuelle KI-Lösungen</span>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   );
