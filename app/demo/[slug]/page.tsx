@@ -6,7 +6,7 @@ import ReactMarkdown from "react-markdown";
 
 type Message = { role: "user" | "assistant"; text: string };
 
-// Optional: Slug → Anzeigename (rein visuell)
+// rein visuell (optional)
 const TENANT_LABELS: Record<string, string> = {
   "hausarzt-painten": "Arztpraxis",
   "muster-demo": "Beispielkunde",
@@ -17,7 +17,6 @@ function getTenantLabel(slug?: string) {
   return TENANT_LABELS[slug] ?? "Kunde";
 }
 
-// Wrapper, damit TS nicht meckert
 const Markdown = ReactMarkdown as any;
 
 export default function DemoPage() {
@@ -32,8 +31,20 @@ export default function DemoPage() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
+  // Begrüßungsnachricht (nur UI, kein API)
+  const welcomeText =
+    "Hallo! Ich bin der digitale Assistent dieser Demo. Stellen Sie mir einfach eine Frage – ich helfe Ihnen sofort weiter.";
+
+  // einmalige Initial-Nachricht
   useEffect(() => {
-    // immer nach unten scrollen bei neuen Messages
+    if (messages.length === 0) {
+      setMessages([{ role: "assistant", text: welcomeText }]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autoscroll
+  useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
@@ -98,127 +109,76 @@ export default function DemoPage() {
   return (
     <main className="min-h-screen bg-[#f6f7f7] text-slate-900">
       <div className="mx-auto max-w-5xl px-4 py-10 sm:py-14">
-        {/* Card */}
         <section className="rounded-[32px] bg-white/60 p-6 shadow-sm ring-1 ring-black/5 backdrop-blur sm:p-10">
           {/* Header */}
           <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className="text-[22px] font-semibold tracking-tight text-slate-900 sm:text-2xl">
+              <h1 className="text-[22px] font-semibold tracking-tight sm:text-2xl">
                 Live-Chat auf Ihrer Website
               </h1>
               <p className="mt-1 text-sm text-slate-500">
-                Beispieldialog · Besucher: {tenantLabel}
+                Demo · Besucher: {tenantLabel}
               </p>
             </div>
 
-            <div className="inline-flex items-center gap-2 self-start rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 ring-1 ring-emerald-100">
+            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 ring-1 ring-emerald-100">
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
               Online · 24/7
             </div>
           </header>
 
-          {/* Chat Area */}
+          {/* Chat */}
           <div className="mt-8 space-y-6">
-            {/* Chat bubbles container */}
             <div
               ref={scrollRef}
               className="space-y-6 rounded-[28px] bg-white p-6 shadow-sm ring-1 ring-black/5 sm:p-8"
               style={{ minHeight: 340 }}
             >
-              {/* Demo-Intro (wenn noch keine Nachrichten) */}
-              {messages.length === 0 && (
-                <>
-                  <div className="rounded-[22px] bg-white px-6 py-5 ring-1 ring-black/5">
-                    <p className="text-[15px] leading-relaxed text-slate-900">
-                      <span className="font-semibold">Patient:</span>{" "}
-                      Kann ich online einen Termin vereinbaren und wie bestelle ich ein Rezept?
-                    </p>
-                  </div>
-
-                  <div className="rounded-[22px] bg-white px-6 py-5 ring-1 ring-black/5">
-                    <p className="text-[15px] leading-relaxed text-slate-900">
-                      <span className="font-semibold">Praxis-Assistent:</span>{" "}
-                      Sie können uns Ihre Terminanfrage rund um die Uhr über das Formular senden.
-                      Wiederholungsrezepte können Sie bequem online bestellen – wir melden uns, sobald
-                      sie abholbereit sind.
-                    </p>
-                  </div>
-
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => send("Klingt perfekt. Wo finde ich das Formular?")}
-                      className="max-w-[86%] rounded-full bg-[#0b0b0c] px-6 py-4 text-[15px] font-medium text-white shadow-sm ring-1 ring-black/10 transition hover:opacity-95"
+              {messages.map((m, i) => {
+                const isUser = m.role === "user";
+                return (
+                  <div key={i} className={isUser ? "flex justify-end" : "flex justify-start"}>
+                    <div
+                      className={[
+                        "max-w-[86%] rounded-[22px] px-6 py-5 text-[15px] leading-relaxed ring-1",
+                        isUser
+                          ? "bg-[#0b0b0c] text-white ring-black/10"
+                          : "bg-white text-slate-900 ring-black/5",
+                      ].join(" ")}
                     >
-                      Klingt perfekt. Wo finde ich das Formular?
-                    </button>
-                  </div>
-
-                  <div className="rounded-[22px] bg-white px-6 py-5 ring-1 ring-black/5">
-                    <p className="text-[15px] leading-relaxed text-slate-900">
-                      <span className="font-semibold">Praxis-Assistent:</span>{" "}
-                      Ich öffne es Ihnen direkt hier – tragen Sie einfach kurz Ihre Daten ein, der
-                      Rest läuft automatisch über Ihr Praxisteam.
-                    </p>
-                  </div>
-
-                  <div className="pt-2" />
-                </>
-              )}
-
-              {/* Real chat messages */}
-              {messages.length > 0 && (
-                <>
-                  {messages.map((m, i) => {
-                    const isUser = m.role === "user";
-                    return (
-                      <div key={i} className={isUser ? "flex justify-end" : "flex justify-start"}>
-                        <div
-                          className={[
-                            "max-w-[86%] rounded-[22px] px-6 py-5 text-[15px] leading-relaxed ring-1",
-                            isUser
-                              ? "bg-[#0b0b0c] text-white ring-black/10"
-                              : "bg-white text-slate-900 ring-black/5",
-                          ].join(" ")}
+                      {isUser ? (
+                        <span className="whitespace-pre-wrap">{m.text}</span>
+                      ) : (
+                        <Markdown
+                          components={{
+                            ul: ({ children }: any) => (
+                              <ul className="ml-5 list-disc space-y-2">{children}</ul>
+                            ),
+                            ol: ({ children }: any) => (
+                              <ol className="ml-5 list-decimal space-y-2">{children}</ol>
+                            ),
+                            li: ({ children }: any) => (
+                              <li className="leading-relaxed">{children}</li>
+                            ),
+                            p: ({ children }: any) => (
+                              <p className="mb-2 leading-relaxed last:mb-0">{children}</p>
+                            ),
+                          }}
                         >
-                          {isUser ? (
-                            <span className="whitespace-pre-wrap">{m.text}</span>
-                          ) : (
-                            <div className="whitespace-pre-wrap">
-                              <Markdown
-                                components={{
-                                  ul: ({ children }: any) => (
-                                    <ul className="ml-5 list-disc space-y-2">{children}</ul>
-                                  ),
-                                  ol: ({ children }: any) => (
-                                    <ol className="ml-5 list-decimal space-y-2">{children}</ol>
-                                  ),
-                                  li: ({ children }: any) => (
-                                    <li className="leading-relaxed">{children}</li>
-                                  ),
-                                  p: ({ children }: any) => (
-                                    <p className="mb-2 leading-relaxed last:mb-0">{children}</p>
-                                  ),
-                                }}
-                              >
-                                {m.text}
-                              </Markdown>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* sending indicator */}
-                  {isSending && (
-                    <div className="flex justify-start">
-                      <div className="rounded-[22px] bg-white px-6 py-5 text-[15px] text-slate-600 ring-1 ring-black/5">
-                        Antwort wird erstellt…
-                      </div>
+                          {m.text}
+                        </Markdown>
+                      )}
                     </div>
-                  )}
-                </>
+                  </div>
+                );
+              })}
+
+              {isSending && (
+                <div className="flex justify-start">
+                  <div className="rounded-[22px] bg-white px-6 py-5 text-[15px] text-slate-600 ring-1 ring-black/5">
+                    Antwort wird erstellt…
+                  </div>
+                </div>
               )}
             </div>
 
@@ -237,34 +197,32 @@ export default function DemoPage() {
             </div>
 
             {/* Input */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <form
-                className="flex w-full items-center gap-3"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  send();
-                }}
-              >
-                <input
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Nachricht eingeben…"
-                  className="h-12 w-full rounded-full bg-white px-5 text-sm text-slate-900 shadow-sm ring-1 ring-black/10 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                />
+            <form
+              className="flex items-center gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                send();
+              }}
+            >
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Nachricht eingeben…"
+                className="h-12 w-full rounded-full bg-white px-5 text-sm shadow-sm ring-1 ring-black/10 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+              />
 
-                <button
-                  type="submit"
-                  disabled={isSending}
-                  className="h-12 shrink-0 rounded-full bg-[#0b0b0c] px-6 text-sm font-medium text-white shadow-sm ring-1 ring-black/10 transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isSending ? "Senden…" : "Senden"}
-                </button>
-              </form>
-            </div>
+              <button
+                type="submit"
+                disabled={isSending}
+                className="h-12 rounded-full bg-[#0b0b0c] px-6 text-sm font-medium text-white shadow-sm ring-1 ring-black/10 transition hover:opacity-95 disabled:opacity-60"
+              >
+                {isSending ? "Senden…" : "Senden"}
+              </button>
+            </form>
 
             {/* Footer */}
-            <div className="flex flex-col gap-2 pt-2 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 pt-2 text-xs text-slate-400 sm:flex-row sm:justify-between">
               <span>Integration auf Ihrer bestehenden Website</span>
               <span>Fusionary AI – individuelle KI-Lösungen</span>
             </div>
