@@ -1,3 +1,17 @@
+export async function GET() {
+  const { data, error } = await supaAdmin
+    .from("tenants")
+    .select("id, slug")
+    .limit(5);
+
+  return NextResponse.json({
+    ok: !error,
+    error: error?.message ?? null,
+    sampleTenants: data ?? [],
+    hasServiceRole: !!process.env.SUPABASE_SERVICE_ROLE,
+  });
+}
+export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supaAdmin } from "@/lib/db";
