@@ -14,7 +14,6 @@ type TenantSettings = {
   welcome_message: string;
   fallback_message: string;
 
-  // Leads / Handoff
   lead_enabled?: boolean | null;
   lead_email?: string | null;
   lead_auto_reply?: string | null;
@@ -32,14 +31,15 @@ type HandoffState = {
   message?: string;
   offered_at_ts?: number;
   completed?: boolean;
+
+  // optional hint: user chose phone/email
+  preferred_contact?: "email" | "phone";
 };
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// Soft-Threshold (nur als Orientierung). Wir fallen nicht mehr hart zurück,
-// solange wir überhaupt Matches haben.
 const MIN_SIMILARITY = 0.20;
 
 // --- Fetch Tenant ---
@@ -67,15 +67,9 @@ async function getTenantSettings(tenantId: string): Promise<TenantSettings> {
     .single();
 
   if (error || !data) {
-    console.warn(
-      "tenant_settings not found for tenant_id:",
-      tenantId,
-      "— using defaults",
-    );
     return {
       welcome_message: "Wie kann ich Ihnen helfen?",
-      fallback_message:
-        "Leider habe ich hierzu noch keine Informationen hinterlegt.",
+      fallback_message: "Leider habe ich hierzu noch keine Informationen hinterlegt.",
       lead_enabled: true,
       lead_email: null,
       lead_auto_reply: "Vielen Dank! Wir melden uns zeitnah.",
@@ -86,11 +80,7 @@ async function getTenantSettings(tenantId: string): Promise<TenantSettings> {
 }
 
 // --- Vector RAG Search ---
-async function ragSearch(
-  tenantId: string,
-  query: string,
-  k = 4,
-): Promise<RagMatch[]> {
+async function ragSearch(tenantId: string, query: string, k = 4): Promise<RagMatch[]> {
   const emb = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: query,
@@ -112,7 +102,6 @@ async function ragSearch(
   return (data ?? []) as RagMatch[];
 }
 
-// --- System Prompt (neutral, für alle Branchen) ---
 function systemPrompt(companyName: string, fallbackMessage: string) {
   return `Rolle:
 Du bist ein professioneller digitaler Assistent des Unternehmens "${companyName}".
@@ -144,6 +133,7 @@ function normalizeHandoff(h: any): HandoffState {
     message: h?.message,
     offered_at_ts: h?.offered_at_ts,
     completed: !!h?.completed,
+    preferred_contact: h?.preferred_contact,
   };
 }
 
@@ -165,26 +155,28 @@ function userSaysNo(text: string) {
   return t === "nein" || t.startsWith("nein ") || t.startsWith("nein,");
 }
 
-function extractBasicsFromText(text: string) {
-  const emailMatch = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-  const email = emailMatch?.[0];
-
-  const phoneMatch = text.match(/(\+?\d[\d\s().-]{6,}\d)/);
-  const phone = phoneMatch?.[0];
-
-  let name: string | undefined;
-  const nameMatch =
-    text.match(/(ich heiße|mein name ist|name:)\s*([A-Za-zÀ-ÿ' -]{2,})/i) ||
-    text.match(/^(?:name)\s*[:\-]\s*([A-Za-zÀ-ÿ' -]{2,})$/im);
-  if (nameMatch) name = (nameMatch[2] || nameMatch[1])?.trim();
-
-  return { email, phone, name };
+function extractEmail(text: string) {
+  const m = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return m?.[0];
 }
 
-/**
- * Rule-First Intent Detection (deterministisch)
- * Ziel: Kein "mal so, mal so" mehr bei Terminen/Rückruf/Kontakt.
- */
+function extractPhone(text: string) {
+  const m = text.match(/(\+?\d[\d\s().-]{6,}\d)/);
+  return m?.[0];
+}
+
+function looksLikeName(text: string) {
+  const t = text.trim();
+  if (t.length < 3) return false;
+  if (t.length > 80) return false;
+  // keine E-Mail/Telefon
+  if (extractEmail(t) || extractPhone(t)) return false;
+  // mind. 2 Wörter, nur Buchstaben/Leerzeichen/'-
+  const parts = t.split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return false;
+  return parts.every((p) => /^[A-Za-zÀ-ÿ'’-]+$/.test(p));
+}
+
 function detectLeadIntentRuleFirst(userText: string): LeadType | null {
   const t = userText.toLowerCase();
 
@@ -193,13 +185,11 @@ function detectLeadIntentRuleFirst(userText: string): LeadType | null {
     "termine",
     "terminvereinbarung",
     "vereinbaren",
-    "sprechstunde",
     "beratungstermin",
     "reservieren",
     "buch",
     "buchen",
     "kalender",
-    "slot",
   ];
 
   const callbackKeywords = [
@@ -209,25 +199,11 @@ function detectLeadIntentRuleFirst(userText: string): LeadType | null {
     "ruf mich",
     "anrufen",
     "telefonieren",
-    "call",
     "callback",
   ];
 
-  const contactKeywords = [
-    "kontakt",
-    "anfrage",
-    "angebot",
-    "preise",
-    "kosten",
-    "interesse",
-    "beratung",
-    "info",
-    "information",
-    "email",
-    "e-mail",
-  ];
+  const contactKeywords = ["kontakt", "anfrage", "angebot", "preise", "kosten", "interesse", "beratung", "info"];
 
-  // Priorität: appointment > callback > contact
   if (appointmentKeywords.some((k) => t.includes(k))) return "appointment";
   if (callbackKeywords.some((k) => t.includes(k))) return "callback";
   if (contactKeywords.some((k) => t.includes(k))) return "contact";
@@ -243,9 +219,9 @@ Analysiere die Nutzeranfrage und entscheide:
 Gib NUR gültiges JSON zurück.
 
 Regeln:
-- Terminwörter ("Termin", "vereinbaren", "Sprechstunde", "Beratungstermin") => appointment
-- Rückrufwörter ("Rückruf", "anrufen", "zurückrufen") => callback
-- Interesse/Anfrage ("Kontakt", "Anfrage", "Interesse", "Preise", "Angebot") => contact
+- Terminwörter => appointment
+- Rückrufwörter => callback
+- Interesse/Anfrage => contact
 Text:
 """${userText}"""
 `;
@@ -261,17 +237,21 @@ Text:
     const offer_handoff = !!obj.offer_handoff;
     const lt = obj.lead_type as string | undefined;
     const lead_type: LeadType =
-      lt === "appointment" || lt === "callback" || lt === "contact"
-        ? lt
-        : "contact";
+      lt === "appointment" || lt === "callback" || lt === "contact" ? lt : "contact";
     return { offer_handoff, lead_type };
   } catch {
     return { offer_handoff: false, lead_type: "contact" as LeadType };
   }
 }
 
-async function sendLeadViaApi(slug: string, lead: { type: LeadType; name?: string; email?: string; phone?: string; message: string; metadata?: any }) {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/leads`, {
+async function sendLeadViaApi(
+  slug: string,
+  lead: { type: LeadType; name?: string; email?: string; phone?: string; message: string; metadata?: any },
+) {
+  const base = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
+  const url = base ? `${base}/api/leads` : `/api/leads`;
+
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -298,7 +278,6 @@ async function sendLeadViaApi(slug: string, lead: { type: LeadType; name?: strin
 
 export async function POST(req: NextRequest) {
   try {
-    // Body lesen
     let body: any = {};
     try {
       body = await req.json();
@@ -309,9 +288,7 @@ export async function POST(req: NextRequest) {
     const url = new URL(req.url);
 
     const message =
-      (body.message as string | undefined) ??
-      url.searchParams.get("message") ??
-      "";
+      (body.message as string | undefined) ?? url.searchParams.get("message") ?? "";
 
     const slug =
       (body.slug as string | undefined) ??
@@ -321,40 +298,19 @@ export async function POST(req: NextRequest) {
 
     let handoff = normalizeHandoff(body.handoff);
 
-    if (!message) {
-      return NextResponse.json({ error: "message required" }, { status: 400 });
-    }
+    if (!message) return NextResponse.json({ error: "message required" }, { status: 400 });
+    if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
 
-    if (!slug) {
-      console.error("[API] Missing slug in request");
-      return NextResponse.json({ error: "slug required" }, { status: 400 });
-    }
-
-    console.log("[API] Incoming request", {
-      slug,
-      messagePreview: message.slice(0, 80),
-      handoffStage: handoff.stage,
-      handoffActive: handoff.active,
-      handoffCompleted: handoff.completed,
-    });
-
-    // Tenant + Settings laden
     const tenant = await getTenantBySlug(slug);
     const settings = await getTenantSettings(tenant.id);
 
-    // Debug-Mode: ?debug=1 gibt Rohdaten zurück (inkl. settings)
-    const debug = url.searchParams.get("debug");
-    const debugMode = debug === "1";
+    const debugMode = url.searchParams.get("debug") === "1";
 
-    // Guard: wenn completed, normal weiter (Client kann optional resetten)
     if (handoff.completed) {
       handoff = { active: false, completed: true };
     }
 
-    /* -------------------------------------------------------
-       0) Wenn ein Offer offen ist und User sagt "Ja" -> Handoff starten
-       (muss vor Rule-First/RAG kommen, sonst wirkt es unlogisch)
-    -------------------------------------------------------- */
+    /* 0) Offer offen + Ja/Nein */
     if (handoff.stage === "offered" && !handoff.active && !handoff.completed) {
       if (userSaysNo(message)) {
         handoff = { active: false, completed: false };
@@ -365,7 +321,6 @@ export async function POST(req: NextRequest) {
           handoff,
         });
       }
-
       if (userSaysYes(message)) {
         handoff.active = true;
         handoff.stage = "collect_name";
@@ -376,12 +331,10 @@ export async function POST(req: NextRequest) {
           handoff,
         });
       }
-      // Wenn weder ja/nein, lassen wir normal weiterlaufen (User stellt evtl. neue Frage)
+      // sonst normal weiter
     }
 
-    /* -------------------------------------------------------
-       1) Wenn Handoff aktiv: Daten sammeln / Lead erstellen
-    -------------------------------------------------------- */
+    /* 1) Handoff aktiv: stage-basiert sammeln */
     if (handoff.active && !handoff.completed) {
       if (userSaysNo(message)) {
         handoff = { active: false, completed: false };
@@ -393,48 +346,82 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const extracted = extractBasicsFromText(message);
-      if (!handoff.name && extracted.name) handoff.name = extracted.name;
-      if (!handoff.email && extracted.email) handoff.email = extracted.email;
-      if (!handoff.phone && extracted.phone) handoff.phone = extracted.phone;
+      const raw = message.trim();
+      const lower = raw.toLowerCase();
 
-      // Anliegen/Message einsammeln
-      if (!handoff.message) {
-        if (!userSaysYes(message) && message.trim().length > 2) {
-          handoff.message = message.trim();
+      // 1a) Name sammeln
+      if (!handoff.name && handoff.stage === "collect_name") {
+        if (looksLikeName(raw)) {
+          handoff.name = raw;
+          handoff.stage = "collect_contact";
+          return NextResponse.json({
+            text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
+            welcome_message: settings.welcome_message,
+            from_kb: false,
+            handoff,
+          });
         }
-      } else {
-        if (!userSaysYes(message) && message.trim().length > 2) {
-          handoff.message = `${handoff.message}\n\nZusatz: ${message.trim()}`.trim();
+
+        // Falls Nutzer "Mein Name ist ..." schreibt, akzeptieren wir trotzdem
+        const m = raw.match(/(ich heiße|mein name ist|name:)\s*([A-Za-zÀ-ÿ'’ -]{2,})/i);
+        if (m?.[2]) {
+          handoff.name = m[2].trim();
+          handoff.stage = "collect_contact";
+          return NextResponse.json({
+            text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
+            welcome_message: settings.welcome_message,
+            from_kb: false,
+            handoff,
+          });
         }
-      }
 
-      const missing: Array<"name" | "contact" | "message"> = [];
-      if (!handoff.name) missing.push("name");
-      if (!handoff.email && !handoff.phone) missing.push("contact");
-      if (!handoff.message) missing.push("message");
-
-      if (missing.includes("name")) {
-        handoff.stage = "collect_name";
         return NextResponse.json({
-          text: "Gerne. Wie ist Ihr Name?",
+          text: "Wie ist Ihr vollständiger Name? (Vor- und Nachname)",
           welcome_message: settings.welcome_message,
           from_kb: false,
           handoff,
         });
       }
 
-      if (missing.includes("contact")) {
-        handoff.stage = "collect_contact";
-        return NextResponse.json({
-          text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
-          welcome_message: settings.welcome_message,
-          from_kb: false,
-          handoff,
-        });
-      }
+      // 1b) Kontakt sammeln
+      if ((!handoff.email && !handoff.phone) && handoff.stage === "collect_contact") {
+        // Preference erkennen
+        if (lower.includes("telefon")) handoff.preferred_contact = "phone";
+        if (lower.includes("mail") || lower.includes("e-mail") || lower.includes("email")) handoff.preferred_contact = "email";
 
-      if (missing.includes("message")) {
+        const email = extractEmail(raw);
+        const phone = extractPhone(raw);
+        if (email) handoff.email = email;
+        if (phone) handoff.phone = phone;
+
+        // Wenn User nur "per Telefon" sagt, fragen wir gezielt nach Nummer
+        if (!handoff.email && !handoff.phone) {
+          if (handoff.preferred_contact === "phone") {
+            return NextResponse.json({
+              text: "Alles klar. Wie lautet Ihre Telefonnummer?",
+              welcome_message: settings.welcome_message,
+              from_kb: false,
+              handoff,
+            });
+          }
+          if (handoff.preferred_contact === "email") {
+            return NextResponse.json({
+              text: "Alles klar. Wie lautet Ihre E-Mail-Adresse?",
+              welcome_message: settings.welcome_message,
+              from_kb: false,
+              handoff,
+            });
+          }
+
+          return NextResponse.json({
+            text: "Bitte senden Sie mir Ihre E-Mail-Adresse oder Telefonnummer (z. B. max@mail.de oder +49...).",
+            welcome_message: settings.welcome_message,
+            from_kb: false,
+            handoff,
+          });
+        }
+
+        // Kontakt vorhanden -> nächster Schritt: Anliegen
         handoff.stage = "collect_message";
         const t = handoff.lead_type ?? "contact";
         const ask =
@@ -451,23 +438,38 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Wenn Leads deaktiviert oder kein Empfänger gesetzt -> sauber fallbacken
+      // 1c) Anliegen sammeln
+      if (!handoff.message && handoff.stage === "collect_message") {
+        if (raw.length < 3) {
+          return NextResponse.json({
+            text: "Bitte schildern Sie kurz Ihr Anliegen.",
+            welcome_message: settings.welcome_message,
+            from_kb: false,
+            handoff,
+          });
+        }
+        handoff.message = raw;
+      } else if (handoff.message && handoff.stage === "collect_message") {
+        // optional: Zusatzinfos
+        if (raw.length >= 3) {
+          handoff.message = `${handoff.message}\n\nZusatz: ${raw}`.trim();
+        }
+      }
+
+      // Guard: Leads aktiviert + Empfänger gesetzt?
       if (settings.lead_enabled === false || !settings.lead_email) {
-        const fb =
-          settings.fallback_message ||
-          "Ich kann Ihre Anfrage aktuell nicht weiterleiten. Bitte kontaktieren Sie uns direkt über die Website oder telefonisch.";
         handoff = { active: false, completed: false };
         return NextResponse.json({
-          text: fb,
+          text: settings.fallback_message,
           welcome_message: settings.welcome_message,
           from_kb: false,
           handoff,
         });
       }
 
-      // Lead absenden (DB wird in /api/leads immer gespeichert; Email optional)
+      // Lead absenden
       const leadType: LeadType = handoff.lead_type || "contact";
-      const leadMessage = handoff.message || message || "Kontaktanfrage";
+      const leadMessage = handoff.message || "Kontaktanfrage";
 
       const result = await sendLeadViaApi(slug, {
         type: leadType,
@@ -490,23 +492,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    /* -------------------------------------------------------
-       2) RULE-FIRST: Lead-Intent deterministisch priorisieren
-       -> Wenn erkannt: Offer zurückgeben (noch bevor RAG läuft)
-    -------------------------------------------------------- */
+    /* 2) RULE-FIRST Offer */
     const ruleLeadType = detectLeadIntentRuleFirst(message);
 
-    // Guard gegen Spam: Offer nicht zu häufig (2 Minuten)
     const now = Date.now();
     const offeredRecently =
       typeof handoff.offered_at_ts === "number" && now - handoff.offered_at_ts < 120_000;
 
-    if (
-      ruleLeadType &&
-      (settings.lead_enabled !== false) &&
-      !offeredRecently &&
-      !handoff.completed
-    ) {
+    if (ruleLeadType && settings.lead_enabled !== false && !offeredRecently && !handoff.completed) {
       handoff = {
         active: false,
         completed: false,
@@ -530,17 +523,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    /* -------------------------------------------------------
-       3) Optional: LLM-Klassifikation als Fallback (nur wenn Rule-First nicht gegriffen hat)
-    -------------------------------------------------------- */
-    if (
-      !ruleLeadType &&
-      (settings.lead_enabled !== false) &&
-      !offeredRecently &&
-      !handoff.completed
-    ) {
+    /* 3) Optional LLM Klassifikation */
+    if (!ruleLeadType && settings.lead_enabled !== false && !offeredRecently && !handoff.completed) {
       const { offer_handoff, lead_type } = await classifyLeadIntentLLM(message);
-
       if (offer_handoff) {
         handoff = {
           active: false,
@@ -566,43 +551,30 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    /* -------------------------------------------------------
-       4) RAG / Wissenssuche (unverändert)
-    -------------------------------------------------------- */
+    /* 4) RAG */
     let matches: RagMatch[] = [];
     try {
       matches = await ragSearch(tenant.id, message, 4);
-      console.log(
-        "[RAG] raw matches:",
-        matches.map((m) => ({ id: m.id, similarity: m.similarity })),
-      );
     } catch (e) {
-      console.error("[RAG] error while calling match_embeddings:", e);
       matches = [];
     }
 
     const scored = (matches ?? []).filter(
-      (m) =>
-        typeof m.similarity === "number" &&
-        !!m.content &&
-        m.content.trim().length > 0,
+      (m) => typeof m.similarity === "number" && !!m.content && m.content.trim().length > 0,
     );
 
     if (debugMode) {
-      const relevantMatches = scored.filter((m) => m.similarity >= MIN_SIMILARITY);
       return NextResponse.json({
         slug,
         tenant,
         settings,
         matches: scored,
-        relevantMatches,
         threshold: MIN_SIMILARITY,
         handoff,
       });
     }
 
     if (scored.length === 0) {
-      console.log("[RAG] no matches returned from vector search, using fallback_message");
       return NextResponse.json({
         text: settings.fallback_message,
         welcome_message: settings.welcome_message,
@@ -618,13 +590,6 @@ export async function POST(req: NextRequest) {
     const top = (above.length > 0 ? above : scored)
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, 4);
-
-    console.log("[RAG] using matches for KB:", {
-      usedCount: top.length,
-      threshold: MIN_SIMILARITY,
-      usedSimilarities: top.map((m) => m.similarity),
-      usedIds: top.map((m) => m.id),
-    });
 
     const kb = top.map((m) => `- ${m.content}`).join("\n");
     const system = systemPrompt(tenant.name, settings.fallback_message);
@@ -647,8 +612,7 @@ Bitte antworte strukturiert, sachlich, hilfreich und ohne Begrüßung.`,
       ],
     });
 
-    const text =
-      completion.choices[0]?.message?.content ?? settings.fallback_message;
+    const text = completion.choices[0]?.message?.content ?? settings.fallback_message;
 
     return NextResponse.json({
       text,
@@ -658,9 +622,6 @@ Bitte antworte strukturiert, sachlich, hilfreich und ohne Begrüßung.`,
     });
   } catch (e: any) {
     console.error("API ERROR:", e);
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? "server error" },
-      { status: 500 },
-    );
+    return NextResponse.json({ ok: false, error: e?.message ?? "server error" }, { status: 500 });
   }
 }
