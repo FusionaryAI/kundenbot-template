@@ -13,7 +13,8 @@ type RagMatch = {
 type TenantSettings = {
   welcome_message: string;
   fallback_message: string;
-  // optional für Leads (falls du Spalten schon ergänzt hast)
+
+  // Leads / Handoff
   lead_enabled?: boolean | null;
   lead_email?: string | null;
   lead_auto_reply?: string | null;
@@ -29,7 +30,6 @@ type HandoffState = {
   email?: string;
   phone?: string;
   message?: string;
-  // Guard
   offered_at_ts?: number;
   completed?: boolean;
 };
@@ -60,9 +60,6 @@ async function getTenantBySlug(slug: string) {
 
 // --- Fetch Tenant Settings ---
 async function getTenantSettings(tenantId: string): Promise<TenantSettings> {
-  // Wir erweitern SELECT, aber bleiben kompatibel, falls Spalten (noch) fehlen:
-  // Wenn deine tenant_settings diese Spalten noch nicht hat, bekommst du in Supabase einen Fehler.
-  // Dann kommentieren wir die Felder wieder raus ODER du fügst die Spalten an (empfohlen).
   const { data, error } = await supaAdmin
     .from("tenant_settings")
     .select("welcome_message, fallback_message, lead_enabled, lead_email, lead_auto_reply")
@@ -81,7 +78,7 @@ async function getTenantSettings(tenantId: string): Promise<TenantSettings> {
         "Leider habe ich hierzu noch keine Informationen hinterlegt.",
       lead_enabled: true,
       lead_email: null,
-      lead_auto_reply: "Vielen Dank! Wir haben Ihre Anfrage erhalten und melden uns zeitnah.",
+      lead_auto_reply: "Vielen Dank! Wir melden uns zeitnah.",
     };
   }
 
@@ -184,7 +181,61 @@ function extractBasicsFromText(text: string) {
   return { email, phone, name };
 }
 
-async function classifyLeadIntent(userText: string) {
+/**
+ * Rule-First Intent Detection (deterministisch)
+ * Ziel: Kein "mal so, mal so" mehr bei Terminen/Rückruf/Kontakt.
+ */
+function detectLeadIntentRuleFirst(userText: string): LeadType | null {
+  const t = userText.toLowerCase();
+
+  const appointmentKeywords = [
+    "termin",
+    "termine",
+    "terminvereinbarung",
+    "vereinbaren",
+    "sprechstunde",
+    "beratungstermin",
+    "reservieren",
+    "buch",
+    "buchen",
+    "kalender",
+    "slot",
+  ];
+
+  const callbackKeywords = [
+    "rückruf",
+    "zurückrufen",
+    "rufen sie mich",
+    "ruf mich",
+    "anrufen",
+    "telefonieren",
+    "call",
+    "callback",
+  ];
+
+  const contactKeywords = [
+    "kontakt",
+    "anfrage",
+    "angebot",
+    "preise",
+    "kosten",
+    "interesse",
+    "beratung",
+    "info",
+    "information",
+    "email",
+    "e-mail",
+  ];
+
+  // Priorität: appointment > callback > contact
+  if (appointmentKeywords.some((k) => t.includes(k))) return "appointment";
+  if (callbackKeywords.some((k) => t.includes(k))) return "callback";
+  if (contactKeywords.some((k) => t.includes(k))) return "contact";
+
+  return null;
+}
+
+async function classifyLeadIntentLLM(userText: string) {
   const prompt = `
 Analysiere die Nutzeranfrage und entscheide:
 - offer_handoff: soll aktiv angeboten werden, eine Anfrage aufzunehmen?
@@ -238,7 +289,7 @@ async function sendLeadViaApi(slug: string, lead: { type: LeadType; name?: strin
   if (!res.ok || !json?.ok) {
     throw new Error(json?.error || "Lead delivery failed");
   }
-  return json as { ok: true; lead_id: string; message: string };
+  return json as { ok: true; lead_id: string; email_sent?: boolean; message: string };
 }
 
 /* --------------------------
@@ -268,7 +319,6 @@ export async function POST(req: NextRequest) {
       req.headers.get("x-tenant-slug") ??
       undefined;
 
-    // NEW: handoff state
     let handoff = normalizeHandoff(body.handoff);
 
     if (!message) {
@@ -283,24 +333,56 @@ export async function POST(req: NextRequest) {
     console.log("[API] Incoming request", {
       slug,
       messagePreview: message.slice(0, 80),
+      handoffStage: handoff.stage,
+      handoffActive: handoff.active,
+      handoffCompleted: handoff.completed,
     });
 
     // Tenant + Settings laden
     const tenant = await getTenantBySlug(slug);
     const settings = await getTenantSettings(tenant.id);
 
-    // Guard: wenn completed, normal weiter
+    // Debug-Mode: ?debug=1 gibt Rohdaten zurück (inkl. settings)
+    const debug = url.searchParams.get("debug");
+    const debugMode = debug === "1";
+
+    // Guard: wenn completed, normal weiter (Client kann optional resetten)
     if (handoff.completed) {
       handoff = { active: false, completed: true };
     }
 
-    /* ---------------------------------------
-       1) Lead Flow (läuft VOR RAG/LLM)
-       - minimal-invasiv: nur wenn handoff.active
-    ---------------------------------------- */
+    /* -------------------------------------------------------
+       0) Wenn ein Offer offen ist und User sagt "Ja" -> Handoff starten
+       (muss vor Rule-First/RAG kommen, sonst wirkt es unlogisch)
+    -------------------------------------------------------- */
+    if (handoff.stage === "offered" && !handoff.active && !handoff.completed) {
+      if (userSaysNo(message)) {
+        handoff = { active: false, completed: false };
+        return NextResponse.json({
+          text: "Alles klar. Wobei kann ich Ihnen sonst helfen?",
+          welcome_message: settings.welcome_message,
+          from_kb: false,
+          handoff,
+        });
+      }
 
+      if (userSaysYes(message)) {
+        handoff.active = true;
+        handoff.stage = "collect_name";
+        return NextResponse.json({
+          text: "Super. Wie ist Ihr Name?",
+          welcome_message: settings.welcome_message,
+          from_kb: false,
+          handoff,
+        });
+      }
+      // Wenn weder ja/nein, lassen wir normal weiterlaufen (User stellt evtl. neue Frage)
+    }
+
+    /* -------------------------------------------------------
+       1) Wenn Handoff aktiv: Daten sammeln / Lead erstellen
+    -------------------------------------------------------- */
     if (handoff.active && !handoff.completed) {
-      // Abbruch
       if (userSaysNo(message)) {
         handoff = { active: false, completed: false };
         return NextResponse.json({
@@ -327,13 +409,11 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Missing?
       const missing: Array<"name" | "contact" | "message"> = [];
       if (!handoff.name) missing.push("name");
       if (!handoff.email && !handoff.phone) missing.push("contact");
       if (!handoff.message) missing.push("message");
 
-      // stagebasierte Rückfragen
       if (missing.includes("name")) {
         handoff.stage = "collect_name";
         return NextResponse.json({
@@ -371,21 +451,21 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Wenn Leads deaktiviert oder kein Empfänger gesetzt
+      // Wenn Leads deaktiviert oder kein Empfänger gesetzt -> sauber fallbacken
       if (settings.lead_enabled === false || !settings.lead_email) {
-        const fallback =
+        const fb =
           settings.fallback_message ||
           "Ich kann Ihre Anfrage aktuell nicht weiterleiten. Bitte kontaktieren Sie uns direkt über die Website oder telefonisch.";
         handoff = { active: false, completed: false };
         return NextResponse.json({
-          text: fallback,
+          text: fb,
           welcome_message: settings.welcome_message,
           from_kb: false,
           handoff,
         });
       }
 
-      // Lead absenden
+      // Lead absenden (DB wird in /api/leads immer gespeichert; Email optional)
       const leadType: LeadType = handoff.lead_type || "contact";
       const leadMessage = handoff.message || message || "Kontaktanfrage";
 
@@ -410,21 +490,56 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    /* ---------------------------------------
-       2) Optionales aktives Angebot (professionell)
-       - nur wenn leads enabled
-       - guard gegen Spam: max alle 2 Minuten
-    ---------------------------------------- */
+    /* -------------------------------------------------------
+       2) RULE-FIRST: Lead-Intent deterministisch priorisieren
+       -> Wenn erkannt: Offer zurückgeben (noch bevor RAG läuft)
+    -------------------------------------------------------- */
+    const ruleLeadType = detectLeadIntentRuleFirst(message);
+
+    // Guard gegen Spam: Offer nicht zu häufig (2 Minuten)
     const now = Date.now();
     const offeredRecently =
       typeof handoff.offered_at_ts === "number" && now - handoff.offered_at_ts < 120_000;
 
     if (
+      ruleLeadType &&
       (settings.lead_enabled !== false) &&
       !offeredRecently &&
       !handoff.completed
     ) {
-      const { offer_handoff, lead_type } = await classifyLeadIntent(message);
+      handoff = {
+        active: false,
+        completed: false,
+        stage: "offered",
+        lead_type: ruleLeadType,
+        offered_at_ts: now,
+      };
+
+      const offerText =
+        ruleLeadType === "appointment"
+          ? "Möchten Sie, dass ich eine Terminanfrage ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten und den Terminwunsch auf."
+          : ruleLeadType === "callback"
+          ? "Möchten Sie, dass ich eine Rückrufbitte ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten und das Thema auf."
+          : "Möchten Sie, dass ich Ihre Anfrage direkt ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten auf.";
+
+      return NextResponse.json({
+        text: offerText,
+        welcome_message: settings.welcome_message,
+        from_kb: false,
+        handoff,
+      });
+    }
+
+    /* -------------------------------------------------------
+       3) Optional: LLM-Klassifikation als Fallback (nur wenn Rule-First nicht gegriffen hat)
+    -------------------------------------------------------- */
+    if (
+      !ruleLeadType &&
+      (settings.lead_enabled !== false) &&
+      !offeredRecently &&
+      !handoff.completed
+    ) {
+      const { offer_handoff, lead_type } = await classifyLeadIntentLLM(message);
 
       if (offer_handoff) {
         handoff = {
@@ -451,22 +566,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    /* ---------------------------------------
-       3) Wenn Nutzer auf Angebot mit "Ja" reagiert,
-          starten wir den handoff flow
-    ---------------------------------------- */
-    if (handoff.stage === "offered" && userSaysYes(message)) {
-      handoff.active = true;
-      handoff.stage = "collect_name";
-      return NextResponse.json({
-        text: "Super. Wie ist Ihr Name?",
-        welcome_message: settings.welcome_message,
-        from_kb: false,
-        handoff,
-      });
-    }
-
-    // --- RAG / Wissenssuche ---
+    /* -------------------------------------------------------
+       4) RAG / Wissenssuche (unverändert)
+    -------------------------------------------------------- */
     let matches: RagMatch[] = [];
     try {
       matches = await ragSearch(tenant.id, message, 4);
@@ -479,7 +581,6 @@ export async function POST(req: NextRequest) {
       matches = [];
     }
 
-    // Nur sinnvolle Matches behalten
     const scored = (matches ?? []).filter(
       (m) =>
         typeof m.similarity === "number" &&
@@ -487,9 +588,7 @@ export async function POST(req: NextRequest) {
         m.content.trim().length > 0,
     );
 
-    // Debug-Mode: ?debug=1 gibt Rohdaten zurück
-    const debug = url.searchParams.get("debug");
-    if (debug === "1") {
+    if (debugMode) {
       const relevantMatches = scored.filter((m) => m.similarity >= MIN_SIMILARITY);
       return NextResponse.json({
         slug,
@@ -498,10 +597,10 @@ export async function POST(req: NextRequest) {
         matches: scored,
         relevantMatches,
         threshold: MIN_SIMILARITY,
+        handoff,
       });
     }
 
-    // Wenn wirklich gar keine Matches aus der DB kommen ⇒ Fallback
     if (scored.length === 0) {
       console.log("[RAG] no matches returned from vector search, using fallback_message");
       return NextResponse.json({
@@ -512,7 +611,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Soft-Filter: bevorzugt >= Threshold, sonst Top-K (damit Demo nicht “stumm” wird)
     const above = scored
       .filter((m) => m.similarity >= MIN_SIMILARITY)
       .sort((a, b) => b.similarity - a.similarity);
@@ -531,7 +629,6 @@ export async function POST(req: NextRequest) {
     const kb = top.map((m) => `- ${m.content}`).join("\n");
     const system = systemPrompt(tenant.name, settings.fallback_message);
 
-    // --- LLM-Antwort generieren ---
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.35,
