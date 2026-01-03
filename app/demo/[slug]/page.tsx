@@ -29,6 +29,9 @@ export default function DemoPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSending, setIsSending] = useState(false);
 
+  // NEW: handoff state für mehrstufige Lead-Übergabe
+  const [handoff, setHandoff] = useState<any>(null);
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   // Begrüßungsnachricht (nur UI, kein API)
@@ -70,13 +73,17 @@ export default function DemoPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, message: q }),
+        // NEW: handoff mitsenden
+        body: JSON.stringify({ slug, message: q, handoff }),
       });
 
       if (!res.ok) throw new Error("Fehler bei der Anfrage.");
 
       const data = await res.json();
       const text = data.text ?? "Keine Antwort.";
+
+      // NEW: handoff speichern (für den nächsten Turn)
+      setHandoff(data.handoff ?? null);
 
       setMessages((m) => [...m, { role: "assistant", text }]);
     } catch {
