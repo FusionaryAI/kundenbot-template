@@ -6,9 +6,22 @@ export const runtime = "nodejs";
 
 type LeadType = "contact" | "appointment" | "callback";
 
-const resend = new Resend(process.env.RESEND_API_KEY!);
+/**
+ * Lazy Resend Initialisierung
+ * → verhindert Build-Fehler, wenn ENV beim Build fehlt
+ */
+function getResendClient() {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY is missing");
+  }
+  return new Resend(apiKey);
+}
 
-// --- Helpers ---
+// --------------------
+// Helpers
+// --------------------
+
 async function getTenantBySlug(slug: string) {
   const { data, error } = await supaAdmin
     .from("tenants")
@@ -32,7 +45,10 @@ async function getTenantSettings(tenantId: string) {
     .single();
 
   if (error || !data) {
-    return { lead_enabled: false, lead_email: null };
+    return {
+      lead_enabled: false,
+      lead_email: null,
+    };
   }
 
   return data as {
@@ -41,7 +57,10 @@ async function getTenantSettings(tenantId: string) {
   };
 }
 
-// --- POST /api/leads ---
+// --------------------
+// POST /api/leads
+// --------------------
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -64,17 +83,21 @@ export async function POST(req: NextRequest) {
       metadata?: any;
     } = body;
 
-    if (!slug || !message || !type) {
+    // --- Minimal-Validation ---
+    if (!slug || !type || !message) {
       return NextResponse.json(
         { ok: false, error: "Missing required fields" },
         { status: 400 },
       );
     }
 
+    // --- Tenant & Settings ---
     const tenant = await getTenantBySlug(slug);
     const settings = await getTenantSettings(tenant.id);
 
-    // 1) LEAD IMMER SPEICHERN
+    // ------------------------------------------------
+    // 1) LEAD IMMER SPEICHERN (Single Source of Truth)
+    // ------------------------------------------------
     const { data: lead, error: insertError } = await supaAdmin
       .from("leads")
       .insert({
@@ -95,14 +118,23 @@ export async function POST(req: NextRequest) {
       throw new Error("Lead insert failed");
     }
 
-    // 2) MAIL OPTIONAL SENDEN
+    // ------------------------------------------------
+    // 2) E-MAIL VERSUCHEN (optional)
+    // ------------------------------------------------
     let emailSent = false;
     let emailError: string | null = null;
 
     if (settings.lead_enabled !== false && settings.lead_email) {
       try {
+        const from = process.env.RESEND_FROM;
+        if (!from) {
+          throw new Error("RESEND_FROM is missing");
+        }
+
+        const resend = getResendClient();
+
         await resend.emails.send({
-          from: process.env.RESEND_FROM!,
+          from,
           to: settings.lead_email,
           subject: `Neue Anfrage (${type})`,
           text: `
@@ -140,7 +172,9 @@ ${message}
       }
     }
 
-    // 3) IMMER OK ZURÜCKGEBEN
+    // ------------------------------------------------
+    // 3) IMMER OK ZURÜCK (User bekommt Ruhe)
+    // ------------------------------------------------
     return NextResponse.json({
       ok: true,
       lead_id: lead.id,
