@@ -25,12 +25,15 @@ type HandoffState = {
   active: boolean;
   stage?: "offered" | "collect_name" | "collect_contact" | "collect_message" | "ready";
   lead_type?: LeadType;
+
   name?: string;
   email?: string;
   phone?: string;
   message?: string;
+
   offered_at_ts?: number;
   completed?: boolean;
+
   preferred_contact?: "email" | "phone";
 };
 
@@ -38,6 +41,8 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
+// Soft-Threshold (nur als Orientierung). Wir fallen nicht mehr hart zurück,
+// solange wir überhaupt Matches haben.
 const MIN_SIMILARITY = 0.20;
 
 // --------------------
@@ -168,17 +173,40 @@ function extractPhone(text: string) {
   return m?.[0];
 }
 
-function looksLikeName(text: string) {
-  const t = text.trim();
-  if (t.length < 3) return false;
-  if (t.length > 80) return false;
+function normalizeNameCandidate(text: string) {
+  return text
+    .trim()
+    .replace(/^(ich heiße|mein name ist|name:)\s*/i, "")
+    .replace(/^(herr|frau|dr\.?|prof\.?)\s+/i, "")
+    .replace(/[.,!?;:]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// sehr tolerant: akzeptiert auch "Max Mustermann." usw.
+function looksLikeFullName(text: string) {
+  const t = normalizeNameCandidate(text);
+  if (t.length < 3 || t.length > 80) return false;
   if (extractEmail(t) || extractPhone(t)) return false;
 
-  const parts = t.split(/\s+/).filter(Boolean);
+  // entferne "(...)" am Ende optional
+  const cleaned = t.replace(/\s*\([^)]*\)\s*$/g, "").trim();
+  const parts = cleaned.split(/\s+/).filter(Boolean);
   if (parts.length < 2) return false;
 
-  // einfache Plausibilität: keine Zahlen, nur Buchstaben/Bindestrich/Apostroph
-  return parts.every((p) => /^[A-Za-zÀ-ÿ'’-]+$/.test(p));
+  return parts.every((p) => /^[A-Za-zÀ-ÿ'’\-]+$/.test(p));
+}
+
+function looksLikeSingleNamePart(text: string) {
+  const t = normalizeNameCandidate(text);
+  if (t.length < 2 || t.length > 40) return false;
+  if (extractEmail(t) || extractPhone(t)) return false;
+
+  const cleaned = t.replace(/\s*\([^)]*\)\s*$/g, "").trim();
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  if (parts.length !== 1) return false;
+
+  return /^[A-Za-zÀ-ÿ'’\-]{2,}$/.test(parts[0]);
 }
 
 /**
@@ -193,6 +221,7 @@ function detectLeadIntentRuleFirst(userText: string): LeadType | null {
     "terminvereinbarung",
     "vereinbaren",
     "beratungstermin",
+    "sprechstunde",
     "reservieren",
     "buch",
     "buchen",
@@ -269,8 +298,7 @@ Text:
 /**
  * LLM-Extraktion (Fallback) – stage-basiert.
  * Wird nur genutzt, wenn Heuristiken nicht ausreichen.
- *
- * Rückgabe ist optional und muss validiert werden.
+ * Rückgabe muss validiert werden.
  */
 async function extractWithLLM(
   stage: "collect_name" | "collect_contact" | "collect_message",
@@ -280,8 +308,8 @@ async function extractWithLLM(
     stage === "collect_name"
       ? `Extrahiere einen plausiblen vollständigen Namen (Vor- und Nachname), falls vorhanden.`
       : stage === "collect_contact"
-      ? `Extrahiere E-Mail und/oder Telefonnummer, falls vorhanden. Erkenne ggf. preferred_contact ("email" oder "phone") wenn Nutzer das sagt.`
-      : `Extrahiere das Anliegen als message (kurz, aber vollständig).`;
+        ? `Extrahiere E-Mail und/oder Telefonnummer, falls vorhanden. Erkenne ggf. preferred_contact ("email" oder "phone") wenn Nutzer das sagt.`
+        : `Extrahiere das Anliegen als message (kurz, aber vollständig).`;
 
   const prompt = `
 Du bist ein Parser. ${instructionByStage}
@@ -329,7 +357,14 @@ Text:
 
 async function sendLeadViaApi(
   slug: string,
-  lead: { type: LeadType; name?: string; email?: string; phone?: string; message: string; metadata?: any },
+  lead: {
+    type: LeadType;
+    name?: string;
+    email?: string;
+    phone?: string;
+    message: string;
+    metadata?: any;
+  },
 ) {
   const base = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
   const url = base ? `${base}/api/leads` : `/api/leads`;
@@ -432,11 +467,21 @@ export async function POST(req: NextRequest) {
       const raw = message.trim();
       const lower = raw.toLowerCase();
 
-      // 1a) Name sammeln
+      // 1a) Name sammeln (robust: tolerant + gezielte Nachname-Rückfrage)
       if (!handoff.name && handoff.stage === "collect_name") {
-        // Heuristik zuerst
-        if (looksLikeName(raw)) {
-          handoff.name = raw;
+        // wenn User aus Versehen E-Mail/Telefon sendet
+        if (extractEmail(raw) || extractPhone(raw)) {
+          return NextResponse.json({
+            text: "Danke. Bitte nennen Sie mir Ihren Namen (Vor- und Nachname).",
+            welcome_message: settings.welcome_message,
+            from_kb: false,
+            handoff,
+          });
+        }
+
+        // Vollname?
+        if (looksLikeFullName(raw)) {
+          handoff.name = normalizeNameCandidate(raw).replace(/\s*\([^)]*\)\s*$/g, "").trim();
           handoff.stage = "collect_contact";
           return NextResponse.json({
             text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
@@ -446,23 +491,39 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Pattern "Mein Name ist ..."
-        const m = raw.match(/(ich heiße|mein name ist|name:)\s*([A-Za-zÀ-ÿ'’ -]{2,})/i);
-        if (m?.[2]) {
-          handoff.name = m[2].trim();
-          handoff.stage = "collect_contact";
+        // Nur Vorname? -> gezielt Nachname erfragen, aber Vorname merken
+        if (looksLikeSingleNamePart(raw)) {
+          handoff.name = normalizeNameCandidate(raw).split(/\s+/)[0]; // Vorname
+          // Bleibt im collect_name – aber Frage ist anders
           return NextResponse.json({
-            text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
+            text: "Danke. Können Sie mir bitte noch Ihren Nachnamen nennen?",
             welcome_message: settings.welcome_message,
             from_kb: false,
-            handoff,
+            handoff: { ...handoff, stage: "collect_name" },
           });
         }
 
-        // LLM-Fallback (nur wenn Heuristik nicht reicht)
+        // Wenn schon Vorname gespeichert ist (aus vorigem Schritt) und User sendet Nachname
+        // (z.B. Bot fragte nach Nachnamen, User antwortet "Mustermann.")
+        if (handoff.name && handoff.name.split(/\s+/).length === 1) {
+          const lastCandidate = normalizeNameCandidate(raw).replace(/\s*\([^)]*\)\s*$/g, "").trim();
+          const okLast = /^[A-Za-zÀ-ÿ'’\-]{2,}$/.test(lastCandidate);
+          if (okLast) {
+            handoff.name = `${handoff.name} ${lastCandidate}`.trim();
+            handoff.stage = "collect_contact";
+            return NextResponse.json({
+              text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
+              welcome_message: settings.welcome_message,
+              from_kb: false,
+              handoff,
+            });
+          }
+        }
+
+        // LLM-Fallback: extrahiere Name
         const llm = await extractWithLLM("collect_name", raw);
-        if (llm.name && looksLikeName(llm.name)) {
-          handoff.name = llm.name;
+        if (llm.name && looksLikeFullName(llm.name)) {
+          handoff.name = normalizeNameCandidate(llm.name).replace(/\s*\([^)]*\)\s*$/g, "").trim();
           handoff.stage = "collect_contact";
           return NextResponse.json({
             text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
@@ -473,7 +534,7 @@ export async function POST(req: NextRequest) {
         }
 
         return NextResponse.json({
-          text: "Wie ist Ihr vollständiger Name? (Vor- und Nachname)",
+          text: "Wie ist Ihr vollständiger Name? (Vor- und Nachname, z. B. „Max Mustermann“)",
           welcome_message: settings.welcome_message,
           from_kb: false,
           handoff,
@@ -497,10 +558,9 @@ export async function POST(req: NextRequest) {
         if (!handoff.email && !handoff.phone) {
           const llm = await extractWithLLM("collect_contact", raw);
 
-          // preferred_contact übernehmen
           if (llm.preferred_contact) handoff.preferred_contact = llm.preferred_contact;
 
-          // Werte übernehmen, aber validieren
+          // Validierung beibehalten
           if (llm.email && extractEmail(llm.email)) handoff.email = extractEmail(llm.email);
           if (llm.phone && extractPhone(llm.phone)) handoff.phone = extractPhone(llm.phone);
         }
@@ -551,11 +611,9 @@ export async function POST(req: NextRequest) {
 
       // 1c) Anliegen sammeln
       if (!handoff.message && handoff.stage === "collect_message") {
-        // Erstmal direkte Eingabe nutzen
         if (raw.length >= 3) {
           handoff.message = raw;
         } else {
-          // LLM-Fallback (z. B. sehr kurze/unklare Eingaben)
           const llm = await extractWithLLM("collect_message", raw);
           if (llm.message && llm.message.length >= 3) handoff.message = llm.message;
         }
@@ -569,7 +627,6 @@ export async function POST(req: NextRequest) {
           });
         }
       } else if (handoff.message && handoff.stage === "collect_message") {
-        // optional: Zusatzinfos
         if (raw.length >= 3) {
           handoff.message = `${handoff.message}\n\nZusatz: ${raw}`.trim();
         }
@@ -674,7 +731,8 @@ export async function POST(req: NextRequest) {
     let matches: RagMatch[] = [];
     try {
       matches = await ragSearch(tenant.id, message, 4);
-    } catch {
+    } catch (e) {
+      console.error("[RAG] error:", e);
       matches = [];
     }
 
