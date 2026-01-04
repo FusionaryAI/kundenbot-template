@@ -32,6 +32,9 @@ type HandoffState = {
 
   email?: string;
   phone?: string;
+
+  // Bei KB-Lücke setzen wir die ursprüngliche Frage hier rein,
+  // und hängen später ggf. Zusatzinfos an.
   message?: string;
 
   // Termin-spezifisch (optional)
@@ -48,7 +51,12 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
+// RAG Threshold
 const MIN_SIMILARITY = 0.20;
+
+// Ab dieser Ähnlichkeit gilt eine Antwort als "KB-tauglich"
+// Wenn darunter, bieten wir Weiterleitung an (statt Fallback).
+const KB_GOOD_ENOUGH = 0.22;
 
 // --------------------
 // Helpers
@@ -159,6 +167,7 @@ function normalizeHandoff(h: any): HandoffState {
 
     email: h?.email,
     phone: h?.phone,
+
     message: h?.message,
 
     appointment_topic: h?.appointment_topic ?? null,
@@ -362,9 +371,6 @@ Text:
   }
 }
 
-/**
- * Termin-Extraktion: Topic + Window (nur wenn lead_type === appointment)
- */
 async function extractAppointmentDetails(userText: string) {
   const prompt = `
 Extrahiere aus der Nachricht:
@@ -419,6 +425,8 @@ async function sendLeadViaApi(
     preferred_contact?: "email" | "phone" | null;
     message: string;
     metadata?: any;
+    appointment_topic?: string | null;
+    appointment_window?: string | null;
   },
 ) {
   const publicBase = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
@@ -440,6 +448,8 @@ async function sendLeadViaApi(
       phone: lead.phone,
       preferred_contact: lead.preferred_contact ?? null,
       message: lead.message,
+      appointment_topic: lead.appointment_topic ?? null,
+      appointment_window: lead.appointment_window ?? null,
       metadata: lead.metadata ?? { source: "chat" },
     }),
   });
@@ -489,7 +499,7 @@ export async function POST(req: NextRequest) {
       handoff = { active: false, completed: true };
     }
 
-    // Offer offen + Ja/Nein
+    // --- Offer offen + Ja/Nein ---
     if (handoff.stage === "offered" && !handoff.active && !handoff.completed) {
       if (userSaysNo(message)) {
         handoff = { active: false, completed: false };
@@ -502,6 +512,8 @@ export async function POST(req: NextRequest) {
       }
       if (userSaysYes(message)) {
         handoff.active = true;
+        // Wenn wir die ursprüngliche Frage bereits haben (KB-Lücke),
+        // starten wir mit Name, damit wir am Ende eine saubere Lead-Anfrage haben.
         handoff.stage = "collect_name";
         return NextResponse.json({
           text: "Super. Wie ist Ihr Name?",
@@ -512,7 +524,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 1) Handoff aktiv
+    // --- 1) Handoff aktiv: stage-basiert sammeln ---
     if (handoff.active && !handoff.completed) {
       if (userSaysNo(message)) {
         handoff = { active: false, completed: false };
@@ -527,7 +539,7 @@ export async function POST(req: NextRequest) {
       const raw = message.trim();
       const lower = raw.toLowerCase();
 
-      // Name
+      // 1a) Name sammeln
       if (!handoff.name && handoff.stage === "collect_name") {
         if (extractEmail(raw) || extractPhone(raw)) {
           return NextResponse.json({
@@ -590,7 +602,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Nachname nachreichen
+      // Sonderfall: Nachname nachreichen
       if (handoff.stage === "collect_name" && handoff.name && !handoff.last_name) {
         const lastCandidate = normalizeNameCandidate(raw).replace(/\s*\([^)]*\)\s*$/g, "").trim();
         const okLast = /^[A-Za-zÀ-ÿ'’\-]{2,}$/.test(lastCandidate);
@@ -607,7 +619,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Kontakt
+      // 1b) Kontakt sammeln
       if ((!handoff.email && !handoff.phone) && handoff.stage === "collect_contact") {
         if (lower.includes("telefon")) handoff.preferred_contact = "phone";
         if (lower.includes("mail") || lower.includes("e-mail") || lower.includes("email"))
@@ -651,49 +663,78 @@ export async function POST(req: NextRequest) {
           });
         }
 
+        // Bei KB-Lücke haben wir das "Anliegen" schon (die ursprüngliche Frage).
+        // Bei normalen Lead-Flows (Termin/Rückruf/Kontakt) fragen wir nach dem Anliegen.
         handoff.stage = "collect_message";
+
         const t = handoff.lead_type ?? "contact";
-        const ask =
-          t === "appointment"
-            ? "Worum geht es bei dem Termin (kurz) und wann würde es Ihnen ungefähr passen?"
-            : t === "callback"
-              ? "Worum geht es und wann sollen wir Sie am besten zurückrufen?"
-              : "Worum geht es genau? Bitte kurz schildern.";
-        return NextResponse.json({
-          text: ask,
-          welcome_message: settings.welcome_message,
-          from_kb: false,
-          handoff,
-        });
-      }
 
-      // Anliegen
-      if (!handoff.message && handoff.stage === "collect_message") {
-        if (raw.length >= 3) {
-          handoff.message = raw;
+        // Wenn bereits eine Frage gespeichert ist (KB-Lücke), überspringen wir die Nachfrage
+        // und gehen direkt zur Weiterleitung.
+        if (handoff.message && t === "contact") {
+          // Termin-Felder nicht relevant
+          // Guard kommt weiter unten, dann senden wir direkt.
         } else {
-          const llm = await extractWithLLM("collect_message", raw);
-          if (llm.message && llm.message.length >= 3) handoff.message = llm.message;
-        }
-
-        if (!handoff.message) {
+          const ask =
+            t === "appointment"
+              ? "Worum geht es bei dem Termin (kurz) und wann würde es Ihnen ungefähr passen?"
+              : t === "callback"
+                ? "Worum geht es und wann sollen wir Sie am besten zurückrufen?"
+                : "Worum geht es genau? Bitte kurz schildern.";
           return NextResponse.json({
-            text: "Bitte schildern Sie kurz Ihr Anliegen.",
+            text: ask,
             welcome_message: settings.welcome_message,
             from_kb: false,
             handoff,
           });
         }
+      }
 
-        // Termin-Felder extrahieren (nur für appointment)
-        if ((handoff.lead_type ?? "contact") === "appointment") {
-          const det = await extractAppointmentDetails(handoff.message);
-          handoff.appointment_topic = det.appointment_topic;
-          handoff.appointment_window = det.appointment_window;
-        }
-      } else if (handoff.message && handoff.stage === "collect_message") {
-        if (raw.length >= 3) {
-          handoff.message = `${handoff.message}\n\nZusatz: ${raw}`.trim();
+      // 1c) Anliegen sammeln
+      if (handoff.stage === "collect_message") {
+        const t = handoff.lead_type ?? "contact";
+
+        // Falls KB-Lücke: handoff.message enthält bereits die ursprüngliche Frage.
+        // In dem Fall muss der Nutzer nichts mehr liefern. Er kann aber Zusatzinfos schicken.
+        if (handoff.message && t === "contact") {
+          const additional = raw.length >= 3 ? raw : null;
+
+          // Falls Nutzer jetzt doch etwas ergänzt, hängen wir es an.
+          // Wenn er nichts sinnvoll ergänzt, lassen wir die Frage wie sie ist.
+          if (additional && additional !== handoff.message) {
+            handoff.message = `${handoff.message}\n\nZusatz: ${additional}`.trim();
+          }
+        } else {
+          // Normale Flows: message jetzt setzen (oder per LLM extrahieren)
+          if (!handoff.message) {
+            if (raw.length >= 3) {
+              handoff.message = raw;
+            } else {
+              const llm = await extractWithLLM("collect_message", raw);
+              if (llm.message && llm.message.length >= 3) handoff.message = llm.message;
+            }
+
+            if (!handoff.message) {
+              return NextResponse.json({
+                text: "Bitte schildern Sie kurz Ihr Anliegen.",
+                welcome_message: settings.welcome_message,
+                from_kb: false,
+                handoff,
+              });
+            }
+
+            // Termin-Extraktion
+            if ((handoff.lead_type ?? "contact") === "appointment") {
+              const det = await extractAppointmentDetails(handoff.message);
+              handoff.appointment_topic = det.appointment_topic;
+              handoff.appointment_window = det.appointment_window;
+            }
+          } else {
+            // bereits vorhanden, dann Zusatz
+            if (raw.length >= 3) {
+              handoff.message = `${handoff.message}\n\nZusatz: ${raw}`.trim();
+            }
+          }
         }
       }
 
@@ -710,7 +751,7 @@ export async function POST(req: NextRequest) {
 
       // Lead absenden
       const leadType: LeadType = handoff.lead_type || "contact";
-      const leadMessage = handoff.message || "Kontaktanfrage";
+      const leadMessage = handoff.message || message.trim() || "Kontaktanfrage";
 
       const result = await sendLeadViaApi(slug, {
         type: leadType,
@@ -719,14 +760,17 @@ export async function POST(req: NextRequest) {
         phone: handoff.phone,
         preferred_contact: handoff.preferred_contact ?? null,
         message: leadMessage,
+        appointment_topic: leadType === "appointment" ? handoff.appointment_topic ?? null : null,
+        appointment_window: leadType === "appointment" ? handoff.appointment_window ?? null : null,
         metadata: {
           source: "chat",
           lead_type: leadType,
-          first_name: handoff.first_name,
-          last_name: handoff.last_name,
+          first_name: handoff.first_name ?? null,
+          last_name: handoff.last_name ?? null,
           preferred_contact: handoff.preferred_contact ?? null,
           appointment_topic: handoff.appointment_topic ?? null,
           appointment_window: handoff.appointment_window ?? null,
+          kb_fallback_handoff: leadType === "contact" ? true : false,
         },
       });
 
@@ -742,12 +786,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2) Offer: Rule-first
-    const ruleLeadType = detectLeadIntentRuleFirst(message);
-
+    // --- 2) Offer: Rule-first ---
     const now = Date.now();
     const offeredRecently =
       typeof handoff.offered_at_ts === "number" && now - handoff.offered_at_ts < 120_000;
+
+    const ruleLeadType = detectLeadIntentRuleFirst(message);
 
     if (ruleLeadType && settings.lead_enabled !== false && !offeredRecently && !handoff.completed) {
       handoff = {
@@ -773,7 +817,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 3) Optional LLM Klassifikation
+    // --- 3) Optional LLM Klassifikation ---
     if (!ruleLeadType && settings.lead_enabled !== false && !offeredRecently && !handoff.completed) {
       const { offer_handoff, lead_type } = await classifyLeadIntentLLM(message);
       if (offer_handoff) {
@@ -801,7 +845,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4) RAG
+    // --- 4) RAG ---
     let matches: RagMatch[] = [];
     try {
       matches = await ragSearch(tenant.id, message, 4);
@@ -821,11 +865,34 @@ export async function POST(req: NextRequest) {
         settings,
         matches: scored,
         threshold: MIN_SIMILARITY,
+        kb_good_enough: KB_GOOD_ENOUGH,
         handoff,
       });
     }
 
+    // A) Keine Matches => Kontakt-Handoff anbieten (statt Fallback)
     if (scored.length === 0) {
+      if (settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
+        handoff = {
+          active: false,
+          completed: false,
+          stage: "offered",
+          lead_type: "contact",
+          offered_at_ts: now,
+          // Originalfrage merken
+          message: message.trim(),
+        };
+
+        return NextResponse.json({
+          text:
+            "Dazu habe ich aktuell keine hinterlegten Informationen. " +
+            "Soll ich Ihre Frage an das Team weiterleiten, damit Sie eine verlässliche Antwort erhalten?",
+          welcome_message: settings.welcome_message,
+          from_kb: false,
+          handoff,
+        });
+      }
+
       return NextResponse.json({
         text: settings.fallback_message,
         welcome_message: settings.welcome_message,
@@ -834,13 +901,44 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const above = scored
+    // Matches sortieren
+    const sorted = scored.sort((a, b) => b.similarity - a.similarity);
+    const best = sorted[0];
+
+    // B) Sehr schwache Matches => ebenfalls Kontakt-Handoff anbieten
+    if (
+      best &&
+      typeof best.similarity === "number" &&
+      best.similarity < KB_GOOD_ENOUGH &&
+      settings.lead_enabled !== false &&
+      !handoff.completed &&
+      !offeredRecently
+    ) {
+      handoff = {
+        active: false,
+        completed: false,
+        stage: "offered",
+        lead_type: "contact",
+        offered_at_ts: now,
+        message: message.trim(),
+      };
+
+      return NextResponse.json({
+        text:
+          "Ich habe dazu nur begrenzte Informationen hinterlegt. " +
+          "Soll ich Ihre Frage an das Team weiterleiten, damit Sie eine verlässliche Antwort erhalten?",
+        welcome_message: settings.welcome_message,
+        from_kb: false,
+        handoff,
+      });
+    }
+
+    // KB zusammenstellen
+    const above = sorted
       .filter((m) => m.similarity >= MIN_SIMILARITY)
       .sort((a, b) => b.similarity - a.similarity);
 
-    const top = (above.length > 0 ? above : scored)
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, 4);
+    const top = (above.length > 0 ? above : sorted).slice(0, 4);
 
     const kb = top.map((m) => `- ${m.content}`).join("\n");
     const system = systemPrompt(tenant.name, settings.fallback_message);
