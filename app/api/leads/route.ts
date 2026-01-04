@@ -22,50 +22,11 @@ function extractPhone(text: string) {
 }
 
 function splitName(fullName?: string | null) {
-  if (!fullName) return { first_name: null, last_name: null };
+  if (!fullName) return { first_name: null as string | null, last_name: null as string | null };
   const t = fullName.trim().replace(/\s+/g, " ");
   const parts = t.split(" ").filter(Boolean);
   if (parts.length < 2) return { first_name: parts[0] ?? null, last_name: null };
-  return {
-    first_name: parts[0],
-    last_name: parts.slice(1).join(" "),
-  };
-}
-
-async function getTenantBySlug(slug: string) {
-  const { data, error } = await supaAdmin
-    .from("tenants")
-    .select("*")
-    .eq("slug", slug)
-    .single();
-
-  if (error || !data) {
-    console.error("getTenantBySlug error:", error, "slug:", slug);
-    throw new Error("Tenant not found");
-  }
-  return data; // { id, name, slug, ... }
-}
-
-async function getTenantLeadSettings(tenantId: string) {
-  const { data, error } = await supaAdmin
-    .from("tenant_settings")
-    .select("lead_enabled, lead_email, lead_auto_reply")
-    .eq("tenant_id", tenantId)
-    .single();
-
-  if (error || !data) {
-    return {
-      lead_enabled: true,
-      lead_email: null as string | null,
-      lead_auto_reply: "Vielen Dank! Wir melden uns zeitnah.",
-    };
-  }
-
-  return {
-    lead_enabled: data.lead_enabled ?? true,
-    lead_email: data.lead_email ?? null,
-    lead_auto_reply: data.lead_auto_reply ?? "Vielen Dank! Wir melden uns zeitnah.",
-  };
+  return { first_name: parts[0], last_name: parts.slice(1).join(" ") };
 }
 
 function formatLeadTypeLabel(t: LeadType) {
@@ -88,10 +49,14 @@ function buildEmailHtml(input: {
   tenantName: string;
   leadType: LeadType;
   name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   email?: string | null;
   phone?: string | null;
   preferred_contact?: PreferredContact;
   message: string;
+  appointment_topic?: string | null;
+  appointment_window?: string | null;
   createdAtIso: string;
   leadId: string;
   slug: string;
@@ -110,6 +75,8 @@ function buildEmailHtml(input: {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
 
+  const showAppt = input.leadType === "appointment";
+
   return `
   <div style="font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif; line-height:1.45; color:#111;">
     <h2 style="margin:0 0 12px 0;">Neue ${esc(formatLeadTypeLabel(input.leadType))}</h2>
@@ -126,6 +93,14 @@ function buildEmailHtml(input: {
         <td style="padding:8px 10px; border:1px solid #e5e7eb;">${esc(input.name ?? "—")}</td>
       </tr>
       <tr>
+        <td style="padding:8px 10px; border:1px solid #e5e7eb;"><strong>Vorname</strong></td>
+        <td style="padding:8px 10px; border:1px solid #e5e7eb;">${esc(input.first_name ?? "—")}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 10px; border:1px solid #e5e7eb;"><strong>Nachname</strong></td>
+        <td style="padding:8px 10px; border:1px solid #e5e7eb;">${esc(input.last_name ?? "—")}</td>
+      </tr>
+      <tr>
         <td style="padding:8px 10px; border:1px solid #e5e7eb;"><strong>E-Mail</strong></td>
         <td style="padding:8px 10px; border:1px solid #e5e7eb;">${esc(input.email ?? "—")}</td>
       </tr>
@@ -137,6 +112,22 @@ function buildEmailHtml(input: {
         <td style="padding:8px 10px; border:1px solid #e5e7eb;"><strong>Bevorzugt</strong></td>
         <td style="padding:8px 10px; border:1px solid #e5e7eb;">${esc(pref)}</td>
       </tr>
+
+      ${
+        showAppt
+          ? `
+      <tr>
+        <td style="padding:8px 10px; border:1px solid #e5e7eb;"><strong>Termin-Thema</strong></td>
+        <td style="padding:8px 10px; border:1px solid #e5e7eb;">${esc(input.appointment_topic ?? "—")}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 10px; border:1px solid #e5e7eb;"><strong>Wunschzeit</strong></td>
+        <td style="padding:8px 10px; border:1px solid #e5e7eb;">${esc(input.appointment_window ?? "—")}</td>
+      </tr>
+      `
+          : ""
+      }
+
       <tr>
         <td style="padding:8px 10px; border:1px solid #e5e7eb;"><strong>Anliegen</strong></td>
         <td style="padding:8px 10px; border:1px solid #e5e7eb; white-space:pre-wrap;">${esc(
@@ -150,6 +141,42 @@ function buildEmailHtml(input: {
     </p>
   </div>
   `;
+}
+
+async function getTenantBySlug(slug: string) {
+  const { data, error } = await supaAdmin
+    .from("tenants")
+    .select("*")
+    .eq("slug", slug)
+    .single();
+
+  if (error || !data) {
+    console.error("getTenantBySlug error:", error, "slug:", slug);
+    throw new Error("Tenant not found");
+  }
+  return data;
+}
+
+async function getTenantLeadSettings(tenantId: string) {
+  const { data, error } = await supaAdmin
+    .from("tenant_settings")
+    .select("lead_enabled, lead_email, lead_auto_reply")
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (error || !data) {
+    return {
+      lead_enabled: true,
+      lead_email: null as string | null,
+      lead_auto_reply: "Vielen Dank! Wir melden uns zeitnah.",
+    };
+  }
+
+  return {
+    lead_enabled: data.lead_enabled ?? true,
+    lead_email: data.lead_email ?? null,
+    lead_auto_reply: data.lead_auto_reply ?? "Vielen Dank! Wir melden uns zeitnah.",
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -180,7 +207,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "leads disabled for tenant" }, { status: 403 });
     }
 
-    // Empfänger (Kunden-Team)
     const notifyTo = leadSettings.lead_email;
     if (!notifyTo || !isEmail(notifyTo)) {
       return NextResponse.json(
@@ -189,7 +215,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Kontaktfelder (best-effort + validiert)
+    // core fields
     const name = typeof body.name === "string" ? body.name.trim() : null;
 
     const emailRaw = typeof body.email === "string" ? body.email.trim() : "";
@@ -205,9 +231,25 @@ export async function POST(req: NextRequest) {
 
     const { first_name, last_name } = splitName(name);
 
+    // metadata (flexible)
     const metadata = safeJson(body.metadata);
 
-    // 1) DB Insert
+    // NEW: appointment fields (prefer explicit fields; fallback to metadata)
+    const appointment_topic =
+      typeof body.appointment_topic === "string" && body.appointment_topic.trim()
+        ? body.appointment_topic.trim()
+        : typeof metadata.appointment_topic === "string" && metadata.appointment_topic.trim()
+          ? metadata.appointment_topic.trim()
+          : null;
+
+    const appointment_window =
+      typeof body.appointment_window === "string" && body.appointment_window.trim()
+        ? body.appointment_window.trim()
+        : typeof metadata.appointment_window === "string" && metadata.appointment_window.trim()
+          ? metadata.appointment_window.trim()
+          : null;
+
+    // 1) DB Insert (now with explicit columns)
     const { data: inserted, error: insertErr } = await supaAdmin
       .from("leads")
       .insert({
@@ -220,6 +262,8 @@ export async function POST(req: NextRequest) {
         email,
         phone,
         message,
+        appointment_topic: leadType === "appointment" ? appointment_topic : null,
+        appointment_window: leadType === "appointment" ? appointment_window : null,
         status: "new",
         metadata,
       })
@@ -234,13 +278,12 @@ export async function POST(req: NextRequest) {
     const leadId = inserted.id as string;
     const createdAtIso = new Date(inserted.created_at as string).toISOString();
 
-    // 2) Email senden (Resend)
+    // 2) Email senden
     const resendKey = process.env.RESEND_API_KEY;
     const from = process.env.RESEND_FROM;
 
     if (!resendKey || !from) {
       console.error("Missing RESEND_API_KEY or RESEND_FROM");
-      // DB ist geschrieben -> Status auf failed setzen
       await supaAdmin.from("leads").update({ status: "failed" }).eq("id", leadId);
       return NextResponse.json(
         { ok: false, error: "email not configured on server" },
@@ -256,10 +299,14 @@ export async function POST(req: NextRequest) {
       tenantName: tenant.name,
       leadType,
       name,
+      first_name,
+      last_name,
       email,
       phone,
       preferred_contact,
       message,
+      appointment_topic: leadType === "appointment" ? appointment_topic : null,
+      appointment_window: leadType === "appointment" ? appointment_window : null,
       createdAtIso,
       leadId,
       slug,
