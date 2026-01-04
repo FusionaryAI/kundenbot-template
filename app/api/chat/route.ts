@@ -27,9 +27,16 @@ type HandoffState = {
   lead_type?: LeadType;
 
   name?: string;
+  first_name?: string | null;
+  last_name?: string | null;
+
   email?: string;
   phone?: string;
   message?: string;
+
+  // Termin-spezifisch (optional)
+  appointment_topic?: string | null;
+  appointment_window?: string | null;
 
   offered_at_ts?: number;
   completed?: boolean;
@@ -42,6 +49,18 @@ const openai = new OpenAI({
 });
 
 const MIN_SIMILARITY = 0.20;
+
+// --------------------
+// Helpers
+// --------------------
+
+function splitName(fullName?: string | null) {
+  if (!fullName) return { first_name: null as string | null, last_name: null as string | null };
+  const t = fullName.trim().replace(/\s+/g, " ");
+  const parts = t.split(" ").filter(Boolean);
+  if (parts.length < 2) return { first_name: parts[0] ?? null, last_name: null };
+  return { first_name: parts[0], last_name: parts.slice(1).join(" ") };
+}
 
 // --------------------
 // DB Helpers
@@ -133,12 +152,21 @@ function normalizeHandoff(h: any): HandoffState {
     active: !!h?.active,
     stage: h?.stage,
     lead_type: h?.lead_type,
+
     name: h?.name,
+    first_name: h?.first_name ?? null,
+    last_name: h?.last_name ?? null,
+
     email: h?.email,
     phone: h?.phone,
     message: h?.message,
+
+    appointment_topic: h?.appointment_topic ?? null,
+    appointment_window: h?.appointment_window ?? null,
+
     offered_at_ts: h?.offered_at_ts,
     completed: !!h?.completed,
+
     preferred_contact: h?.preferred_contact,
   };
 }
@@ -205,9 +233,6 @@ function looksLikeSingleNamePart(text: string) {
   return /^[A-Za-zÀ-ÿ'’\-]{2,}$/.test(parts[0]);
 }
 
-/**
- * Rule-First Intent Detection (deterministisch)
- */
 function detectLeadIntentRuleFirst(userText: string): LeadType | null {
   const t = userText.toLowerCase();
 
@@ -264,11 +289,6 @@ Analysiere die Nutzeranfrage und entscheide:
 - lead_type: appointment, callback oder contact
 Gib NUR gültiges JSON zurück.
 
-Regeln:
-- Terminwörter => appointment
-- Rückrufwörter => callback
-- Interesse/Anfrage => contact
-
 Text:
 """${userText}"""
 `;
@@ -291,9 +311,6 @@ Text:
   }
 }
 
-/**
- * LLM-Extraktion (Fallback) – stage-basiert.
- */
 async function extractWithLLM(
   stage: "collect_name" | "collect_contact" | "collect_message",
   userText: string,
@@ -345,8 +362,51 @@ Text:
   }
 }
 
+/**
+ * Termin-Extraktion: Topic + Window (nur wenn lead_type === appointment)
+ */
+async function extractAppointmentDetails(userText: string) {
+  const prompt = `
+Extrahiere aus der Nachricht:
+- appointment_topic (Thema/Anlass)
+- appointment_window (Zeitfenster/Wunschzeit)
+Wenn nicht erkennbar: null.
+
+Gib ausschließlich JSON zurück:
+{
+  "appointment_topic": string | null,
+  "appointment_window": string | null
+}
+
+Text:
+"""${userText}"""
+`;
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const raw = resp.choices[0]?.message?.content?.trim() || "{}";
+  try {
+    const obj = JSON.parse(raw);
+    return {
+      appointment_topic:
+        typeof obj.appointment_topic === "string" && obj.appointment_topic.trim()
+          ? obj.appointment_topic.trim()
+          : null,
+      appointment_window:
+        typeof obj.appointment_window === "string" && obj.appointment_window.trim()
+          ? obj.appointment_window.trim()
+          : null,
+    };
+  } catch {
+    return { appointment_topic: null, appointment_window: null };
+  }
+}
+
 // --------------------
-// Lead Delivery: FIX 2 (absolute URL)
+// Lead Delivery: absolute URL
 // --------------------
 
 async function sendLeadViaApi(
@@ -361,7 +421,6 @@ async function sendLeadViaApi(
     metadata?: any;
   },
 ) {
-  // Prefer a stable explicit base; fall back to Vercel-provided host at runtime.
   const publicBase = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
   const vercelHost = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
   const base = publicBase || vercelHost;
@@ -430,7 +489,7 @@ export async function POST(req: NextRequest) {
       handoff = { active: false, completed: true };
     }
 
-    // 0) Offer offen + Ja/Nein
+    // Offer offen + Ja/Nein
     if (handoff.stage === "offered" && !handoff.active && !handoff.completed) {
       if (userSaysNo(message)) {
         handoff = { active: false, completed: false };
@@ -451,10 +510,9 @@ export async function POST(req: NextRequest) {
           handoff,
         });
       }
-      // sonst normal weiter
     }
 
-    // 1) Handoff aktiv: stage-basiert sammeln (mit LLM-Fallback)
+    // 1) Handoff aktiv
     if (handoff.active && !handoff.completed) {
       if (userSaysNo(message)) {
         handoff = { active: false, completed: false };
@@ -469,7 +527,7 @@ export async function POST(req: NextRequest) {
       const raw = message.trim();
       const lower = raw.toLowerCase();
 
-      // 1a) Name sammeln (robust)
+      // Name
       if (!handoff.name && handoff.stage === "collect_name") {
         if (extractEmail(raw) || extractPhone(raw)) {
           return NextResponse.json({
@@ -482,6 +540,10 @@ export async function POST(req: NextRequest) {
 
         if (looksLikeFullName(raw)) {
           handoff.name = normalizeNameCandidate(raw).replace(/\s*\([^)]*\)\s*$/g, "").trim();
+          const s = splitName(handoff.name);
+          handoff.first_name = s.first_name;
+          handoff.last_name = s.last_name;
+
           handoff.stage = "collect_contact";
           return NextResponse.json({
             text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
@@ -493,6 +555,9 @@ export async function POST(req: NextRequest) {
 
         if (looksLikeSingleNamePart(raw)) {
           handoff.name = normalizeNameCandidate(raw).split(/\s+/)[0];
+          handoff.first_name = handoff.name;
+          handoff.last_name = null;
+
           return NextResponse.json({
             text: "Danke. Können Sie mir bitte noch Ihren Nachnamen nennen?",
             welcome_message: settings.welcome_message,
@@ -504,6 +569,10 @@ export async function POST(req: NextRequest) {
         const llm = await extractWithLLM("collect_name", raw);
         if (llm.name && looksLikeFullName(llm.name)) {
           handoff.name = normalizeNameCandidate(llm.name).replace(/\s*\([^)]*\)\s*$/g, "").trim();
+          const s = splitName(handoff.name);
+          handoff.first_name = s.first_name;
+          handoff.last_name = s.last_name;
+
           handoff.stage = "collect_contact";
           return NextResponse.json({
             text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
@@ -521,12 +590,13 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Sonderfall: Vorname war gespeichert, Nutzer liefert Nachname
-      if (handoff.stage === "collect_name" && handoff.name && handoff.name.split(/\s+/).length === 1) {
+      // Nachname nachreichen
+      if (handoff.stage === "collect_name" && handoff.name && !handoff.last_name) {
         const lastCandidate = normalizeNameCandidate(raw).replace(/\s*\([^)]*\)\s*$/g, "").trim();
         const okLast = /^[A-Za-zÀ-ÿ'’\-]{2,}$/.test(lastCandidate);
         if (okLast) {
-          handoff.name = `${handoff.name} ${lastCandidate}`.trim();
+          handoff.last_name = lastCandidate;
+          handoff.name = `${handoff.first_name ?? handoff.name} ${handoff.last_name}`.trim();
           handoff.stage = "collect_contact";
           return NextResponse.json({
             text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
@@ -537,7 +607,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 1b) Kontakt sammeln
+      // Kontakt
       if ((!handoff.email && !handoff.phone) && handoff.stage === "collect_contact") {
         if (lower.includes("telefon")) handoff.preferred_contact = "phone";
         if (lower.includes("mail") || lower.includes("e-mail") || lower.includes("email"))
@@ -597,7 +667,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // 1c) Anliegen sammeln
+      // Anliegen
       if (!handoff.message && handoff.stage === "collect_message") {
         if (raw.length >= 3) {
           handoff.message = raw;
@@ -613,6 +683,13 @@ export async function POST(req: NextRequest) {
             from_kb: false,
             handoff,
           });
+        }
+
+        // Termin-Felder extrahieren (nur für appointment)
+        if ((handoff.lead_type ?? "contact") === "appointment") {
+          const det = await extractAppointmentDetails(handoff.message);
+          handoff.appointment_topic = det.appointment_topic;
+          handoff.appointment_window = det.appointment_window;
         }
       } else if (handoff.message && handoff.stage === "collect_message") {
         if (raw.length >= 3) {
@@ -631,7 +708,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Lead absenden (mit preferred_contact)
+      // Lead absenden
       const leadType: LeadType = handoff.lead_type || "contact";
       const leadMessage = handoff.message || "Kontaktanfrage";
 
@@ -642,7 +719,15 @@ export async function POST(req: NextRequest) {
         phone: handoff.phone,
         preferred_contact: handoff.preferred_contact ?? null,
         message: leadMessage,
-        metadata: { source: "chat", lead_type: leadType },
+        metadata: {
+          source: "chat",
+          lead_type: leadType,
+          first_name: handoff.first_name,
+          last_name: handoff.last_name,
+          preferred_contact: handoff.preferred_contact ?? null,
+          appointment_topic: handoff.appointment_topic ?? null,
+          appointment_window: handoff.appointment_window ?? null,
+        },
       });
 
       handoff.completed = true;
@@ -657,7 +742,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2) RULE-FIRST Offer
+    // 2) Offer: Rule-first
     const ruleLeadType = detectLeadIntentRuleFirst(message);
 
     const now = Date.now();
@@ -688,7 +773,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 3) Optional LLM Klassifikation (nur wenn Rule-First nicht greift)
+    // 3) Optional LLM Klassifikation
     if (!ruleLeadType && settings.lead_enabled !== false && !offeredRecently && !handoff.completed) {
       const { offer_handoff, lead_type } = await classifyLeadIntentLLM(message);
       if (offer_handoff) {
