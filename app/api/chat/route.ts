@@ -41,8 +41,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// Soft-Threshold (nur als Orientierung). Wir fallen nicht mehr hart zurück,
-// solange wir überhaupt Matches haben.
 const MIN_SIMILARITY = 0.20;
 
 // --------------------
@@ -183,13 +181,11 @@ function normalizeNameCandidate(text: string) {
     .trim();
 }
 
-// sehr tolerant: akzeptiert auch "Max Mustermann." usw.
 function looksLikeFullName(text: string) {
   const t = normalizeNameCandidate(text);
   if (t.length < 3 || t.length > 80) return false;
   if (extractEmail(t) || extractPhone(t)) return false;
 
-  // entferne "(...)" am Ende optional
   const cleaned = t.replace(/\s*\([^)]*\)\s*$/g, "").trim();
   const parts = cleaned.split(/\s+/).filter(Boolean);
   if (parts.length < 2) return false;
@@ -297,8 +293,6 @@ Text:
 
 /**
  * LLM-Extraktion (Fallback) – stage-basiert.
- * Wird nur genutzt, wenn Heuristiken nicht ausreichen.
- * Rückgabe muss validiert werden.
  */
 async function extractWithLLM(
   stage: "collect_name" | "collect_contact" | "collect_message",
@@ -352,7 +346,7 @@ Text:
 }
 
 // --------------------
-// Leads API Call
+// Lead Delivery: FIX 2 (absolute URL)
 // --------------------
 
 async function sendLeadViaApi(
@@ -362,14 +356,21 @@ async function sendLeadViaApi(
     name?: string;
     email?: string;
     phone?: string;
+    preferred_contact?: "email" | "phone" | null;
     message: string;
     metadata?: any;
   },
 ) {
-  const base = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
-  const url = base ? `${base}/api/leads` : `/api/leads`;
+  // Prefer a stable explicit base; fall back to Vercel-provided host at runtime.
+  const publicBase = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
+  const vercelHost = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
+  const base = publicBase || vercelHost;
 
-  const res = await fetch(url, {
+  if (!base) {
+    throw new Error("Missing base URL. Set NEXT_PUBLIC_BASE_URL in Vercel env.");
+  }
+
+  const res = await fetch(`${base}/api/leads`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -378,6 +379,7 @@ async function sendLeadViaApi(
       name: lead.name,
       email: lead.email,
       phone: lead.phone,
+      preferred_contact: lead.preferred_contact ?? null,
       message: lead.message,
       metadata: lead.metadata ?? { source: "chat" },
     }),
@@ -467,9 +469,8 @@ export async function POST(req: NextRequest) {
       const raw = message.trim();
       const lower = raw.toLowerCase();
 
-      // 1a) Name sammeln (robust: tolerant + gezielte Nachname-Rückfrage)
+      // 1a) Name sammeln (robust)
       if (!handoff.name && handoff.stage === "collect_name") {
-        // wenn User aus Versehen E-Mail/Telefon sendet
         if (extractEmail(raw) || extractPhone(raw)) {
           return NextResponse.json({
             text: "Danke. Bitte nennen Sie mir Ihren Namen (Vor- und Nachname).",
@@ -479,7 +480,6 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Vollname?
         if (looksLikeFullName(raw)) {
           handoff.name = normalizeNameCandidate(raw).replace(/\s*\([^)]*\)\s*$/g, "").trim();
           handoff.stage = "collect_contact";
@@ -491,10 +491,8 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Nur Vorname? -> gezielt Nachname erfragen, aber Vorname merken
         if (looksLikeSingleNamePart(raw)) {
-          handoff.name = normalizeNameCandidate(raw).split(/\s+/)[0]; // Vorname
-          // Bleibt im collect_name – aber Frage ist anders
+          handoff.name = normalizeNameCandidate(raw).split(/\s+/)[0];
           return NextResponse.json({
             text: "Danke. Können Sie mir bitte noch Ihren Nachnamen nennen?",
             welcome_message: settings.welcome_message,
@@ -503,24 +501,6 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Wenn schon Vorname gespeichert ist (aus vorigem Schritt) und User sendet Nachname
-        // (z.B. Bot fragte nach Nachnamen, User antwortet "Mustermann.")
-        if (handoff.name && handoff.name.split(/\s+/).length === 1) {
-          const lastCandidate = normalizeNameCandidate(raw).replace(/\s*\([^)]*\)\s*$/g, "").trim();
-          const okLast = /^[A-Za-zÀ-ÿ'’\-]{2,}$/.test(lastCandidate);
-          if (okLast) {
-            handoff.name = `${handoff.name} ${lastCandidate}`.trim();
-            handoff.stage = "collect_contact";
-            return NextResponse.json({
-              text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
-              welcome_message: settings.welcome_message,
-              from_kb: false,
-              handoff,
-            });
-          }
-        }
-
-        // LLM-Fallback: extrahiere Name
         const llm = await extractWithLLM("collect_name", raw);
         if (llm.name && looksLikeFullName(llm.name)) {
           handoff.name = normalizeNameCandidate(llm.name).replace(/\s*\([^)]*\)\s*$/g, "").trim();
@@ -541,31 +521,40 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // Sonderfall: Vorname war gespeichert, Nutzer liefert Nachname
+      if (handoff.stage === "collect_name" && handoff.name && handoff.name.split(/\s+/).length === 1) {
+        const lastCandidate = normalizeNameCandidate(raw).replace(/\s*\([^)]*\)\s*$/g, "").trim();
+        const okLast = /^[A-Za-zÀ-ÿ'’\-]{2,}$/.test(lastCandidate);
+        if (okLast) {
+          handoff.name = `${handoff.name} ${lastCandidate}`.trim();
+          handoff.stage = "collect_contact";
+          return NextResponse.json({
+            text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
+            welcome_message: settings.welcome_message,
+            from_kb: false,
+            handoff,
+          });
+        }
+      }
+
       // 1b) Kontakt sammeln
       if ((!handoff.email && !handoff.phone) && handoff.stage === "collect_contact") {
-        // Preference erkennen (heuristisch)
         if (lower.includes("telefon")) handoff.preferred_contact = "phone";
         if (lower.includes("mail") || lower.includes("e-mail") || lower.includes("email"))
           handoff.preferred_contact = "email";
 
-        // E-Mail/Telefon heuristisch extrahieren
         const email = extractEmail(raw);
         const phone = extractPhone(raw);
         if (email) handoff.email = email;
         if (phone) handoff.phone = phone;
 
-        // Falls noch nichts: LLM-Fallback
         if (!handoff.email && !handoff.phone) {
           const llm = await extractWithLLM("collect_contact", raw);
-
           if (llm.preferred_contact) handoff.preferred_contact = llm.preferred_contact;
-
-          // Validierung beibehalten
           if (llm.email && extractEmail(llm.email)) handoff.email = extractEmail(llm.email);
           if (llm.phone && extractPhone(llm.phone)) handoff.phone = extractPhone(llm.phone);
         }
 
-        // Wenn User nur "per Telefon" sagt, fragen wir gezielt nach Nummer
         if (!handoff.email && !handoff.phone) {
           if (handoff.preferred_contact === "phone") {
             return NextResponse.json({
@@ -592,7 +581,6 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Kontakt vorhanden -> nächster Schritt: Anliegen
         handoff.stage = "collect_message";
         const t = handoff.lead_type ?? "contact";
         const ask =
@@ -643,7 +631,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Lead absenden
+      // Lead absenden (mit preferred_contact)
       const leadType: LeadType = handoff.lead_type || "contact";
       const leadMessage = handoff.message || "Kontaktanfrage";
 
@@ -652,6 +640,7 @@ export async function POST(req: NextRequest) {
         name: handoff.name,
         email: handoff.email,
         phone: handoff.phone,
+        preferred_contact: handoff.preferred_contact ?? null,
         message: leadMessage,
         metadata: { source: "chat", lead_type: leadType },
       });
