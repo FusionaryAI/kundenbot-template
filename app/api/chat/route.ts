@@ -55,7 +55,6 @@ const openai = new OpenAI({
 const MIN_SIMILARITY = 0.20;
 
 // Ab dieser Ähnlichkeit gilt eine Antwort als "KB-tauglich"
-// Wenn darunter, bieten wir Weiterleitung an (statt Fallback).
 const KB_GOOD_ENOUGH = 0.22;
 
 // --------------------
@@ -68,6 +67,33 @@ function splitName(fullName?: string | null) {
   const parts = t.split(" ").filter(Boolean);
   if (parts.length < 2) return { first_name: parts[0] ?? null, last_name: null };
   return { first_name: parts[0], last_name: parts.slice(1).join(" ") };
+}
+
+/**
+ * Robust JSON extraction from LLM output:
+ * - removes ```json fences
+ * - extracts first {...} block
+ * - returns null if not parsable
+ */
+function parseJsonObjectFromText(raw: string): any | null {
+  if (!raw) return null;
+  const cleaned = raw
+    .trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+
+  const candidate = cleaned.slice(start, end + 1);
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    return null;
+  }
 }
 
 // --------------------
@@ -308,16 +334,14 @@ Text:
   });
 
   const raw = resp.choices[0]?.message?.content?.trim() || "{}";
-  try {
-    const obj = JSON.parse(raw);
-    const offer_handoff = !!obj.offer_handoff;
-    const lt = obj.lead_type as string | undefined;
-    const lead_type: LeadType =
-      lt === "appointment" || lt === "callback" || lt === "contact" ? lt : "contact";
-    return { offer_handoff, lead_type };
-  } catch {
-    return { offer_handoff: false, lead_type: "contact" as LeadType };
-  }
+  const obj = parseJsonObjectFromText(raw) ?? {};
+
+  const offer_handoff = !!obj.offer_handoff;
+  const lt = obj.lead_type as string | undefined;
+  const lead_type: LeadType =
+    lt === "appointment" || lt === "callback" || lt === "contact" ? lt : "contact";
+
+  return { offer_handoff, lead_type };
 }
 
 async function extractWithLLM(
@@ -354,21 +378,18 @@ Text:
   });
 
   const raw = resp.choices[0]?.message?.content?.trim() || "{}";
-  try {
-    const obj = JSON.parse(raw);
-    return {
-      name: typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : null,
-      email: typeof obj.email === "string" && obj.email.trim() ? obj.email.trim() : null,
-      phone: typeof obj.phone === "string" && obj.phone.trim() ? obj.phone.trim() : null,
-      preferred_contact:
-        obj.preferred_contact === "email" || obj.preferred_contact === "phone"
-          ? obj.preferred_contact
-          : null,
-      message: typeof obj.message === "string" && obj.message.trim() ? obj.message.trim() : null,
-    };
-  } catch {
-    return { name: null, email: null, phone: null, preferred_contact: null, message: null };
-  }
+  const obj = parseJsonObjectFromText(raw) ?? {};
+
+  return {
+    name: typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : null,
+    email: typeof obj.email === "string" && obj.email.trim() ? obj.email.trim() : null,
+    phone: typeof obj.phone === "string" && obj.phone.trim() ? obj.phone.trim() : null,
+    preferred_contact:
+      obj.preferred_contact === "email" || obj.preferred_contact === "phone"
+        ? obj.preferred_contact
+        : null,
+    message: typeof obj.message === "string" && obj.message.trim() ? obj.message.trim() : null,
+  };
 }
 
 async function extractAppointmentDetails(userText: string) {
@@ -394,21 +415,18 @@ Text:
   });
 
   const raw = resp.choices[0]?.message?.content?.trim() || "{}";
-  try {
-    const obj = JSON.parse(raw);
-    return {
-      appointment_topic:
-        typeof obj.appointment_topic === "string" && obj.appointment_topic.trim()
-          ? obj.appointment_topic.trim()
-          : null,
-      appointment_window:
-        typeof obj.appointment_window === "string" && obj.appointment_window.trim()
-          ? obj.appointment_window.trim()
-          : null,
-    };
-  } catch {
-    return { appointment_topic: null, appointment_window: null };
-  }
+  const obj = parseJsonObjectFromText(raw) ?? {};
+
+  return {
+    appointment_topic:
+      typeof obj.appointment_topic === "string" && obj.appointment_topic.trim()
+        ? obj.appointment_topic.trim()
+        : null,
+    appointment_window:
+      typeof obj.appointment_window === "string" && obj.appointment_window.trim()
+        ? obj.appointment_window.trim()
+        : null,
+  };
 }
 
 // --------------------
@@ -512,8 +530,6 @@ export async function POST(req: NextRequest) {
       }
       if (userSaysYes(message)) {
         handoff.active = true;
-        // Wenn wir die ursprüngliche Frage bereits haben (KB-Lücke),
-        // starten wir mit Name, damit wir am Ende eine saubere Lead-Anfrage haben.
         handoff.stage = "collect_name";
         return NextResponse.json({
           text: "Super. Wie ist Ihr Name?",
@@ -663,17 +679,12 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Bei KB-Lücke haben wir das "Anliegen" schon (die ursprüngliche Frage).
-        // Bei normalen Lead-Flows (Termin/Rückruf/Kontakt) fragen wir nach dem Anliegen.
         handoff.stage = "collect_message";
 
         const t = handoff.lead_type ?? "contact";
 
-        // Wenn bereits eine Frage gespeichert ist (KB-Lücke), überspringen wir die Nachfrage
-        // und gehen direkt zur Weiterleitung.
         if (handoff.message && t === "contact") {
-          // Termin-Felder nicht relevant
-          // Guard kommt weiter unten, dann senden wir direkt.
+          // KB-Lücke: original question already in handoff.message -> we can submit after optional addition
         } else {
           const ask =
             t === "appointment"
@@ -694,18 +705,12 @@ export async function POST(req: NextRequest) {
       if (handoff.stage === "collect_message") {
         const t = handoff.lead_type ?? "contact";
 
-        // Falls KB-Lücke: handoff.message enthält bereits die ursprüngliche Frage.
-        // In dem Fall muss der Nutzer nichts mehr liefern. Er kann aber Zusatzinfos schicken.
         if (handoff.message && t === "contact") {
           const additional = raw.length >= 3 ? raw : null;
-
-          // Falls Nutzer jetzt doch etwas ergänzt, hängen wir es an.
-          // Wenn er nichts sinnvoll ergänzt, lassen wir die Frage wie sie ist.
           if (additional && additional !== handoff.message) {
             handoff.message = `${handoff.message}\n\nZusatz: ${additional}`.trim();
           }
         } else {
-          // Normale Flows: message jetzt setzen (oder per LLM extrahieren)
           if (!handoff.message) {
             if (raw.length >= 3) {
               handoff.message = raw;
@@ -723,14 +728,12 @@ export async function POST(req: NextRequest) {
               });
             }
 
-            // Termin-Extraktion
             if ((handoff.lead_type ?? "contact") === "appointment") {
               const det = await extractAppointmentDetails(handoff.message);
               handoff.appointment_topic = det.appointment_topic;
               handoff.appointment_window = det.appointment_window;
             }
           } else {
-            // bereits vorhanden, dann Zusatz
             if (raw.length >= 3) {
               handoff.message = `${handoff.message}\n\nZusatz: ${raw}`.trim();
             }
@@ -738,7 +741,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Guard: Leads aktiviert + Empfänger gesetzt?
+      // Guard
       if (settings.lead_enabled === false || !settings.lead_email) {
         handoff = { active: false, completed: false };
         return NextResponse.json({
@@ -879,7 +882,6 @@ export async function POST(req: NextRequest) {
           stage: "offered",
           lead_type: "contact",
           offered_at_ts: now,
-          // Originalfrage merken
           message: message.trim(),
         };
 
@@ -901,7 +903,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Matches sortieren
     const sorted = scored.sort((a, b) => b.similarity - a.similarity);
     const best = sorted[0];
 
