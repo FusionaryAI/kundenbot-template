@@ -51,10 +51,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// RAG Threshold
+// RAG Threshold: welche Snippets kommen als Kandidaten überhaupt in Frage
 const MIN_SIMILARITY = 0.20;
 
-// Ab dieser Ähnlichkeit gilt eine Antwort als "KB-tauglich"
+// Soft-Hinweis: ab hier sind Treffer meist brauchbar, aber nicht garantiert.
+// Wir verlassen uns nicht mehr blind darauf, sondern machen LLM-Gating.
 const KB_GOOD_ENOUGH = 0.22;
 
 // --------------------
@@ -67,33 +68,6 @@ function splitName(fullName?: string | null) {
   const parts = t.split(" ").filter(Boolean);
   if (parts.length < 2) return { first_name: parts[0] ?? null, last_name: null };
   return { first_name: parts[0], last_name: parts.slice(1).join(" ") };
-}
-
-/**
- * Robust JSON extraction from LLM output:
- * - removes ```json fences
- * - extracts first {...} block
- * - returns null if not parsable
- */
-function parseJsonObjectFromText(raw: string): any | null {
-  if (!raw) return null;
-  const cleaned = raw
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
-
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) return null;
-
-  const candidate = cleaned.slice(start, end + 1);
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    return null;
-  }
 }
 
 // --------------------
@@ -175,6 +149,54 @@ REGELN:
 
 ZIEL:
 Hilf der anfragenden Person schnell und zuverlässig mit Informationen des Unternehmens weiter.`;
+}
+
+// --------------------
+// LLM KB-Gating (NEU)
+// --------------------
+
+async function canAnswerFromKB(params: {
+  question: string;
+  kbBullets: string;
+}): Promise<{ can_answer: boolean; answer?: string }> {
+  const prompt = `
+Du prüfst streng, ob die Nutzerfrage ausschließlich mit den KB-Snippets beantwortbar ist.
+
+Gib ausschließlich JSON zurück:
+{
+  "can_answer": boolean,
+  "answer": string | null
+}
+
+Regeln:
+- can_answer = true nur wenn die Antwort klar aus den Snippets ableitbar ist.
+- Wenn Infos fehlen / unklar / nicht enthalten: can_answer = false und answer = null.
+- Keine externen Annahmen.
+
+Nutzerfrage:
+"""${params.question}"""
+
+KB-Snippets:
+${params.kbBullets}
+`;
+
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const raw = resp.choices[0]?.message?.content?.trim() || "{}";
+
+  try {
+    const obj = JSON.parse(raw);
+    const can_answer = !!obj.can_answer;
+    const answer =
+      typeof obj.answer === "string" && obj.answer.trim().length > 0 ? obj.answer.trim() : null;
+    return { can_answer, answer: answer ?? undefined };
+  } catch {
+    return { can_answer: false };
+  }
 }
 
 // --------------------
@@ -334,14 +356,16 @@ Text:
   });
 
   const raw = resp.choices[0]?.message?.content?.trim() || "{}";
-  const obj = parseJsonObjectFromText(raw) ?? {};
-
-  const offer_handoff = !!obj.offer_handoff;
-  const lt = obj.lead_type as string | undefined;
-  const lead_type: LeadType =
-    lt === "appointment" || lt === "callback" || lt === "contact" ? lt : "contact";
-
-  return { offer_handoff, lead_type };
+  try {
+    const obj = JSON.parse(raw);
+    const offer_handoff = !!obj.offer_handoff;
+    const lt = obj.lead_type as string | undefined;
+    const lead_type: LeadType =
+      lt === "appointment" || lt === "callback" || lt === "contact" ? lt : "contact";
+    return { offer_handoff, lead_type };
+  } catch {
+    return { offer_handoff: false, lead_type: "contact" as LeadType };
+  }
 }
 
 async function extractWithLLM(
@@ -378,18 +402,21 @@ Text:
   });
 
   const raw = resp.choices[0]?.message?.content?.trim() || "{}";
-  const obj = parseJsonObjectFromText(raw) ?? {};
-
-  return {
-    name: typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : null,
-    email: typeof obj.email === "string" && obj.email.trim() ? obj.email.trim() : null,
-    phone: typeof obj.phone === "string" && obj.phone.trim() ? obj.phone.trim() : null,
-    preferred_contact:
-      obj.preferred_contact === "email" || obj.preferred_contact === "phone"
-        ? obj.preferred_contact
-        : null,
-    message: typeof obj.message === "string" && obj.message.trim() ? obj.message.trim() : null,
-  };
+  try {
+    const obj = JSON.parse(raw);
+    return {
+      name: typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : null,
+      email: typeof obj.email === "string" && obj.email.trim() ? obj.email.trim() : null,
+      phone: typeof obj.phone === "string" && obj.phone.trim() ? obj.phone.trim() : null,
+      preferred_contact:
+        obj.preferred_contact === "email" || obj.preferred_contact === "phone"
+          ? obj.preferred_contact
+          : null,
+      message: typeof obj.message === "string" && obj.message.trim() ? obj.message.trim() : null,
+    };
+  } catch {
+    return { name: null, email: null, phone: null, preferred_contact: null, message: null };
+  }
 }
 
 async function extractAppointmentDetails(userText: string) {
@@ -415,18 +442,21 @@ Text:
   });
 
   const raw = resp.choices[0]?.message?.content?.trim() || "{}";
-  const obj = parseJsonObjectFromText(raw) ?? {};
-
-  return {
-    appointment_topic:
-      typeof obj.appointment_topic === "string" && obj.appointment_topic.trim()
-        ? obj.appointment_topic.trim()
-        : null,
-    appointment_window:
-      typeof obj.appointment_window === "string" && obj.appointment_window.trim()
-        ? obj.appointment_window.trim()
-        : null,
-  };
+  try {
+    const obj = JSON.parse(raw);
+    return {
+      appointment_topic:
+        typeof obj.appointment_topic === "string" && obj.appointment_topic.trim()
+          ? obj.appointment_topic.trim()
+          : null,
+      appointment_window:
+        typeof obj.appointment_window === "string" && obj.appointment_window.trim()
+          ? obj.appointment_window.trim()
+          : null,
+    };
+  } catch {
+    return { appointment_topic: null, appointment_window: null };
+  }
 }
 
 // --------------------
@@ -683,8 +713,9 @@ export async function POST(req: NextRequest) {
 
         const t = handoff.lead_type ?? "contact";
 
+        // Wenn bereits eine Frage gespeichert ist (KB-Lücke), überspringen wir die Nachfrage
         if (handoff.message && t === "contact") {
-          // KB-Lücke: original question already in handoff.message -> we can submit after optional addition
+          // direkt weiter unten senden
         } else {
           const ask =
             t === "appointment"
@@ -705,6 +736,7 @@ export async function POST(req: NextRequest) {
       if (handoff.stage === "collect_message") {
         const t = handoff.lead_type ?? "contact";
 
+        // KB-Lücke: handoff.message enthält bereits die ursprüngliche Frage
         if (handoff.message && t === "contact") {
           const additional = raw.length >= 3 ? raw : null;
           if (additional && additional !== handoff.message) {
@@ -741,7 +773,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Guard
+      // Guard: Leads aktiviert + Empfänger gesetzt?
       if (settings.lead_enabled === false || !settings.lead_email) {
         handoff = { active: false, completed: false };
         return NextResponse.json({
@@ -861,20 +893,33 @@ export async function POST(req: NextRequest) {
       (m) => typeof m.similarity === "number" && !!m.content && m.content.trim().length > 0,
     );
 
+    // sortiert nach similarity (absteigend)
+    const sorted = scored.sort((a, b) => b.similarity - a.similarity);
+
+    // Snippets-Block für Gating & Antwort
+    const above = sorted
+      .filter((m) => m.similarity >= MIN_SIMILARITY)
+      .sort((a, b) => b.similarity - a.similarity);
+
+    const top = (above.length > 0 ? above : sorted).slice(0, 4);
+    const kbBullets = top.map((m) => `- ${m.content}`).join("\n");
+    const best = sorted[0];
+
     if (debugMode) {
       return NextResponse.json({
         slug,
         tenant,
         settings,
-        matches: scored,
+        matches: sorted,
         threshold: MIN_SIMILARITY,
         kb_good_enough: KB_GOOD_ENOUGH,
+        best_similarity: best?.similarity ?? null,
         handoff,
       });
     }
 
     // A) Keine Matches => Kontakt-Handoff anbieten (statt Fallback)
-    if (scored.length === 0) {
+    if (sorted.length === 0) {
       if (settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
         handoff = {
           active: false,
@@ -903,10 +948,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const sorted = scored.sort((a, b) => b.similarity - a.similarity);
-    const best = sorted[0];
-
-    // B) Sehr schwache Matches => ebenfalls Kontakt-Handoff anbieten
+    // B) Schwache Matches (similarity) => Kontakt-Handoff anbieten
     if (
       best &&
       typeof best.similarity === "number" &&
@@ -934,14 +976,46 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // KB zusammenstellen
-    const above = sorted
-      .filter((m) => m.similarity >= MIN_SIMILARITY)
-      .sort((a, b) => b.similarity - a.similarity);
+    // C) NEU: LLM-Gating – auch bei "scheinbar" guten Treffern prüfen
+    // Wenn nicht klar beantwortbar => Handoff anbieten (statt Fallback/Unsinn)
+    if (settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
+      const gate = await canAnswerFromKB({
+        question: message,
+        kbBullets,
+      });
 
-    const top = (above.length > 0 ? above : sorted).slice(0, 4);
+      if (!gate.can_answer) {
+        handoff = {
+          active: false,
+          completed: false,
+          stage: "offered",
+          lead_type: "contact",
+          offered_at_ts: now,
+          message: message.trim(),
+        };
 
-    const kb = top.map((m) => `- ${m.content}`).join("\n");
+        return NextResponse.json({
+          text:
+            "Das kann ich aktuell nicht verlässlich aus den hinterlegten Informationen beantworten. " +
+            "Soll ich Ihre Frage an das Team weiterleiten?",
+          welcome_message: settings.welcome_message,
+          from_kb: false,
+          handoff,
+        });
+      }
+
+      // Wenn Gate eine fertige Antwort liefert, nutzen wir sie direkt (bessere Stabilität)
+      if (gate.answer && gate.answer.length > 0) {
+        return NextResponse.json({
+          text: gate.answer,
+          welcome_message: settings.welcome_message,
+          from_kb: true,
+          handoff,
+        });
+      }
+    }
+
+    // D) Normal: Antwort generieren aus KB (wenn Gate nicht aktiv war oder positiv)
     const system = systemPrompt(tenant.name, settings.fallback_message);
 
     const completion = await openai.chat.completions.create({
@@ -955,7 +1029,7 @@ export async function POST(req: NextRequest) {
 """${message}"""
 
 Unternehmenswissen:
-${kb}
+${kbBullets}
 
 Bitte antworte strukturiert, sachlich, hilfreich und ohne Begrüßung.`,
         },
