@@ -21,6 +21,15 @@ type TenantSettings = {
 
 type LeadType = "contact" | "appointment" | "callback";
 
+// NEU: Page Context (minimalistisch)
+type PageContext = {
+  page_url?: string | null;
+  page_path?: string | null;
+  page_title?: string | null;
+  tenant_label?: string | null;
+  surface?: string | null;
+};
+
 type HandoffState = {
   active: boolean;
   stage?: "offered" | "collect_name" | "collect_contact" | "collect_message" | "ready";
@@ -33,8 +42,11 @@ type HandoffState = {
   email?: string;
   phone?: string;
 
+  // Bei KB-Lücke setzen wir die ursprüngliche Frage hier rein,
+  // und hängen später ggf. Zusatzinfos an.
   message?: string;
 
+  // Termin-spezifisch (optional)
   appointment_topic?: string | null;
   appointment_window?: string | null;
 
@@ -42,22 +54,20 @@ type HandoffState = {
   completed?: boolean;
 
   preferred_contact?: "email" | "phone";
-};
 
-// NEU: Page Context (minimalistisch)
-type PageContext = {
-  page_url?: string | null;
-  page_path?: string | null;
-  page_title?: string | null;
-  tenant_label?: string | null;
-  surface?: string | null;
+  // NEU: Kontext über mehrere Turns stabil halten
+  page_context?: PageContext | null;
 };
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
+// RAG Threshold: welche Snippets kommen als Kandidaten überhaupt in Frage
 const MIN_SIMILARITY = 0.20;
+
+// Soft-Hinweis: ab hier sind Treffer meist brauchbar, aber nicht garantiert.
+// Wir verlassen uns nicht mehr blind darauf, sondern machen LLM-Gating.
 const KB_GOOD_ENOUGH = 0.22;
 
 // --------------------
@@ -239,6 +249,9 @@ function normalizeHandoff(h: any): HandoffState {
     completed: !!h?.completed,
 
     preferred_contact: h?.preferred_contact,
+
+    // NEU
+    page_context: h?.page_context ?? null,
   };
 }
 
@@ -541,8 +554,7 @@ export async function POST(req: NextRequest) {
 
     const url = new URL(req.url);
 
-    const message =
-      (body.message as string | undefined) ?? url.searchParams.get("message") ?? "";
+    const message = (body.message as string | undefined) ?? url.searchParams.get("message") ?? "";
 
     const slug =
       (body.slug as string | undefined) ??
@@ -683,7 +695,7 @@ export async function POST(req: NextRequest) {
       }
 
       // 1b) Kontakt sammeln
-      if ((!handoff.email && !handoff.phone) && handoff.stage === "collect_contact") {
+      if (!handoff.email && !handoff.phone && handoff.stage === "collect_contact") {
         if (lower.includes("telefon")) handoff.preferred_contact = "phone";
         if (lower.includes("mail") || lower.includes("e-mail") || lower.includes("email"))
           handoff.preferred_contact = "email";
@@ -730,6 +742,7 @@ export async function POST(req: NextRequest) {
 
         const t = handoff.lead_type ?? "contact";
 
+        // Wenn bereits eine Frage gespeichert ist (KB-Lücke), überspringen wir die Nachfrage
         if (handoff.message && t === "contact") {
           // direkt weiter unten senden
         } else {
@@ -752,6 +765,7 @@ export async function POST(req: NextRequest) {
       if (handoff.stage === "collect_message") {
         const t = handoff.lead_type ?? "contact";
 
+        // KB-Lücke: handoff.message enthält bereits die ursprüngliche Frage
         if (handoff.message && t === "contact") {
           const additional = raw.length >= 3 ? raw : null;
           if (additional && additional !== handoff.message) {
@@ -822,8 +836,8 @@ export async function POST(req: NextRequest) {
           appointment_window: handoff.appointment_window ?? null,
           kb_fallback_handoff: leadType === "contact" ? true : false,
 
-          // NEU: Seitenkontext mitgeben
-          page_context: context ?? null,
+          // NEU: Seitenkontext bevorzugt aus dem Handoff (stabil), sonst aus Request
+          page_context: handoff.page_context ?? context ?? null,
         },
       });
 
@@ -853,6 +867,8 @@ export async function POST(req: NextRequest) {
         stage: "offered",
         lead_type: ruleLeadType,
         offered_at_ts: now,
+        // NEU: Kontext im Handoff mitführen
+        page_context: context ?? null,
       };
 
       const offerText =
@@ -880,6 +896,8 @@ export async function POST(req: NextRequest) {
           stage: "offered",
           lead_type,
           offered_at_ts: now,
+          // NEU: Kontext im Handoff mitführen
+          page_context: context ?? null,
         };
 
         const offerText =
@@ -911,8 +929,10 @@ export async function POST(req: NextRequest) {
       (m) => typeof m.similarity === "number" && !!m.content && m.content.trim().length > 0,
     );
 
+    // sortiert nach similarity (absteigend)
     const sorted = scored.sort((a, b) => b.similarity - a.similarity);
 
+    // Snippets-Block für Gating & Antwort
     const above = sorted
       .filter((m) => m.similarity >= MIN_SIMILARITY)
       .sort((a, b) => b.similarity - a.similarity);
@@ -945,6 +965,8 @@ export async function POST(req: NextRequest) {
           lead_type: "contact",
           offered_at_ts: now,
           message: message.trim(),
+          // NEU: Kontext im Handoff mitführen
+          page_context: context ?? null,
         };
 
         return NextResponse.json({
@@ -981,6 +1003,8 @@ export async function POST(req: NextRequest) {
         lead_type: "contact",
         offered_at_ts: now,
         message: message.trim(),
+        // NEU: Kontext im Handoff mitführen
+        page_context: context ?? null,
       };
 
       return NextResponse.json({
@@ -993,7 +1017,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // C) LLM-Gating
+    // C) LLM-Gating – wenn nicht klar beantwortbar => Handoff anbieten
     if (settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
       const gate = await canAnswerFromKB({
         question: message,
@@ -1008,6 +1032,8 @@ export async function POST(req: NextRequest) {
           lead_type: "contact",
           offered_at_ts: now,
           message: message.trim(),
+          // NEU: Kontext im Handoff mitführen
+          page_context: context ?? null,
         };
 
         return NextResponse.json({
@@ -1020,6 +1046,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // Wenn Gate eine fertige Antwort liefert, nutzen wir sie direkt
       if (gate.answer && gate.answer.length > 0) {
         return NextResponse.json({
           text: gate.answer,
