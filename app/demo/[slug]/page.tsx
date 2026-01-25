@@ -29,8 +29,11 @@ export default function DemoPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSending, setIsSending] = useState(false);
 
-  // NEW: handoff state für mehrstufige Lead-Übergabe
+  // Handoff State (für mehrstufige Lead-Übergabe)
   const [handoff, setHandoff] = useState<any>(null);
+
+  // Ref hält immer den aktuellsten handoff (gegen Race Conditions)
+  const handoffRef = useRef<any>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -45,6 +48,11 @@ export default function DemoPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // handoffRef synchron halten
+  useEffect(() => {
+    handoffRef.current = handoff;
+  }, [handoff]);
 
   // Autoscroll
   useEffect(() => {
@@ -70,11 +78,27 @@ export default function DemoPage() {
     setIsSending(true);
 
     try {
+      // WICHTIG: immer den neuesten handoff aus dem Ref mitsenden
+      const currentHandoff = handoffRef.current;
+
+      // NEU: Seiten-Kontext im Format, das dein Backend erwartet (body.context)
+      const context = {
+        page_url: typeof window !== "undefined" ? window.location.href : null,
+        page_path: typeof window !== "undefined" ? window.location.pathname : null,
+        page_title: typeof document !== "undefined" ? document.title : null,
+        tenant_label: tenantLabel,
+        surface: "demo",
+      };
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // NEW: handoff mitsenden
-        body: JSON.stringify({ slug, message: q, handoff }),
+        body: JSON.stringify({
+          slug,
+          message: q,
+          handoff: currentHandoff,
+          context, // WICHTIG: so heißt es im Backend
+        }),
       });
 
       if (!res.ok) throw new Error("Fehler bei der Anfrage.");
@@ -82,8 +106,13 @@ export default function DemoPage() {
       const data = await res.json();
       const text = data.text ?? "Keine Antwort.";
 
-      // NEW: handoff speichern (für den nächsten Turn)
-      setHandoff(data.handoff ?? null);
+      // handoff aus Response speichern
+      // completed => reset, damit nichts "klebt"
+      if (data?.handoff?.completed === true) {
+        setHandoff(null);
+      } else {
+        setHandoff(data.handoff ?? null);
+      }
 
       setMessages((m) => [...m, { role: "assistant", text }]);
     } catch {

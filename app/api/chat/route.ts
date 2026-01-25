@@ -33,11 +33,8 @@ type HandoffState = {
   email?: string;
   phone?: string;
 
-  // Bei KB-Lücke setzen wir die ursprüngliche Frage hier rein,
-  // und hängen später ggf. Zusatzinfos an.
   message?: string;
 
-  // Termin-spezifisch (optional)
   appointment_topic?: string | null;
   appointment_window?: string | null;
 
@@ -47,15 +44,20 @@ type HandoffState = {
   preferred_contact?: "email" | "phone";
 };
 
+// NEU: Page Context (minimalistisch)
+type PageContext = {
+  page_url?: string | null;
+  page_path?: string | null;
+  page_title?: string | null;
+  tenant_label?: string | null;
+  surface?: string | null;
+};
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// RAG Threshold: welche Snippets kommen als Kandidaten überhaupt in Frage
 const MIN_SIMILARITY = 0.20;
-
-// Soft-Hinweis: ab hier sind Treffer meist brauchbar, aber nicht garantiert.
-// Wir verlassen uns nicht mehr blind darauf, sondern machen LLM-Gating.
 const KB_GOOD_ENOUGH = 0.22;
 
 // --------------------
@@ -70,16 +72,28 @@ function splitName(fullName?: string | null) {
   return { first_name: parts[0], last_name: parts.slice(1).join(" ") };
 }
 
+function buildPageHint(context: PageContext | null) {
+  const has =
+    !!context?.page_path || !!context?.page_title || !!context?.page_url || !!context?.tenant_label;
+  if (!has) return "";
+
+  return `
+
+Seitenkontext (wo befindet sich der Nutzer gerade?):
+- Pfad: ${context?.page_path ?? "-"}
+- Titel: ${context?.page_title ?? "-"}
+- URL: ${context?.page_url ?? "-"}
+- Label: ${context?.tenant_label ?? "-"}
+- Surface: ${context?.surface ?? "-"}
+`;
+}
+
 // --------------------
 // DB Helpers
 // --------------------
 
 async function getTenantBySlug(slug: string) {
-  const { data, error } = await supaAdmin
-    .from("tenants")
-    .select("*")
-    .eq("slug", slug)
-    .single();
+  const { data, error } = await supaAdmin.from("tenants").select("*").eq("slug", slug).single();
 
   if (error || !data) {
     console.error("getTenantBySlug error:", error, "for slug:", slug);
@@ -152,7 +166,7 @@ Hilf der anfragenden Person schnell und zuverlässig mit Informationen des Unter
 }
 
 // --------------------
-// LLM KB-Gating (NEU)
+// LLM KB-Gating
 // --------------------
 
 async function canAnswerFromKB(params: {
@@ -522,6 +536,9 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
+    // NEU: context aus Request
+    const context: PageContext | null = (body?.context ?? null) as any;
+
     const url = new URL(req.url);
 
     const message =
@@ -713,7 +730,6 @@ export async function POST(req: NextRequest) {
 
         const t = handoff.lead_type ?? "contact";
 
-        // Wenn bereits eine Frage gespeichert ist (KB-Lücke), überspringen wir die Nachfrage
         if (handoff.message && t === "contact") {
           // direkt weiter unten senden
         } else {
@@ -736,7 +752,6 @@ export async function POST(req: NextRequest) {
       if (handoff.stage === "collect_message") {
         const t = handoff.lead_type ?? "contact";
 
-        // KB-Lücke: handoff.message enthält bereits die ursprüngliche Frage
         if (handoff.message && t === "contact") {
           const additional = raw.length >= 3 ? raw : null;
           if (additional && additional !== handoff.message) {
@@ -806,6 +821,9 @@ export async function POST(req: NextRequest) {
           appointment_topic: handoff.appointment_topic ?? null,
           appointment_window: handoff.appointment_window ?? null,
           kb_fallback_handoff: leadType === "contact" ? true : false,
+
+          // NEU: Seitenkontext mitgeben
+          page_context: context ?? null,
         },
       });
 
@@ -893,10 +911,8 @@ export async function POST(req: NextRequest) {
       (m) => typeof m.similarity === "number" && !!m.content && m.content.trim().length > 0,
     );
 
-    // sortiert nach similarity (absteigend)
     const sorted = scored.sort((a, b) => b.similarity - a.similarity);
 
-    // Snippets-Block für Gating & Antwort
     const above = sorted
       .filter((m) => m.similarity >= MIN_SIMILARITY)
       .sort((a, b) => b.similarity - a.similarity);
@@ -915,6 +931,7 @@ export async function POST(req: NextRequest) {
         kb_good_enough: KB_GOOD_ENOUGH,
         best_similarity: best?.similarity ?? null,
         handoff,
+        context, // hilfreich zum Debuggen
       });
     }
 
@@ -976,8 +993,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // C) NEU: LLM-Gating – auch bei "scheinbar" guten Treffern prüfen
-    // Wenn nicht klar beantwortbar => Handoff anbieten (statt Fallback/Unsinn)
+    // C) LLM-Gating
     if (settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
       const gate = await canAnswerFromKB({
         question: message,
@@ -1004,7 +1020,6 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Wenn Gate eine fertige Antwort liefert, nutzen wir sie direkt (bessere Stabilität)
       if (gate.answer && gate.answer.length > 0) {
         return NextResponse.json({
           text: gate.answer,
@@ -1015,8 +1030,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // D) Normal: Antwort generieren aus KB (wenn Gate nicht aktiv war oder positiv)
+    // D) Normal: Antwort generieren aus KB (+ Seitenkontext)
     const system = systemPrompt(tenant.name, settings.fallback_message);
+    const pageHint = buildPageHint(context);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -1027,11 +1043,12 @@ export async function POST(req: NextRequest) {
           role: "user",
           content: `Nutzerfrage:
 """${message}"""
-
+${pageHint}
 Unternehmenswissen:
 ${kbBullets}
 
-Bitte antworte strukturiert, sachlich, hilfreich und ohne Begrüßung.`,
+Bitte antworte strukturiert, sachlich, hilfreich und ohne Begrüßung.
+WICHTIG: Wenn der Seitenkontext relevant ist, beziehe ihn knapp ein. Wenn nicht, ignoriere ihn.`,
         },
       ],
     });

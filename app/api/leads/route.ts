@@ -150,6 +150,32 @@ function escapeHtml(s: string) {
     .replace(/"/g, "&quot;");
 }
 
+function renderPageContextHtml(metadata: any) {
+  const pc = metadata?.page_context ?? null;
+  if (!pc || typeof pc !== "object") return "";
+
+  const page_path = safeStr((pc as any).page_path ?? "");
+  const page_title = safeStr((pc as any).page_title ?? "");
+  const page_url = safeStr((pc as any).page_url ?? "");
+  const tenant_label = safeStr((pc as any).tenant_label ?? "");
+  const surface = safeStr((pc as any).surface ?? "");
+
+  const hasAny = !!(page_path || page_title || page_url || tenant_label || surface);
+  if (!hasAny) return "";
+
+  return `
+    <hr/>
+    <p><b>Seitenkontext</b></p>
+    <ul>
+      <li><b>Pfad:</b> ${escapeHtml(page_path || "-")}</li>
+      <li><b>Titel:</b> ${escapeHtml(page_title || "-")}</li>
+      <li><b>URL:</b> ${escapeHtml(page_url || "-")}</li>
+      <li><b>Label:</b> ${escapeHtml(tenant_label || "-")}</li>
+      <li><b>Surface:</b> ${escapeHtml(surface || "-")}</li>
+    </ul>
+  `;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -219,6 +245,8 @@ export async function POST(req: NextRequest) {
 
     const subject = `[${tenant.name}] ${leadTypeLabel(type)} – ${name ?? email ?? "Neue Anfrage"}`;
 
+    const pageCtxHtml = renderPageContextHtml(metadata);
+
     const html = `
       <h2>${escapeHtml(leadTypeLabel(type))}</h2>
       <p><b>Team-Briefing</b><br>${escapeHtml(briefing.one_liner)}</p>
@@ -232,6 +260,7 @@ export async function POST(req: NextRequest) {
       <p><b>Name:</b> ${escapeHtml(name ?? "-")}</p>
       <p><b>E-Mail:</b> ${escapeHtml(email ?? "-")}</p>
       <p><b>Telefon:</b> ${escapeHtml(phone ?? "-")}</p>
+      ${pageCtxHtml}
       <pre>${escapeHtml(message)}</pre>
     `;
 
