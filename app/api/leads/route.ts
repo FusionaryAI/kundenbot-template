@@ -196,6 +196,14 @@ export async function POST(req: NextRequest) {
     const appointment_window = safeStr(body.appointment_window) || null;
     const metadata = body.metadata ?? { source: "chat" };
 
+    // ✅ aus metadata in Spalten übernehmen (falls vorhanden)
+    const first_name = safeStr(metadata?.first_name ?? "") || null;
+    const last_name = safeStr(metadata?.last_name ?? "") || null;
+
+    // Manche verwenden "lead_type" zusätzlich zur "type"-Spalte
+    // (bei dir existiert offenbar lead_type als eigene Spalte im Export).
+    const lead_type: LeadType = isLeadType(metadata?.lead_type) ? metadata.lead_type : type;
+
     if (!slug || !message) {
       return NextResponse.json({ ok: false, error: "invalid payload" }, { status: 400 });
     }
@@ -215,10 +223,16 @@ export async function POST(req: NextRequest) {
         email: email ?? null,
         phone: phone ?? null,
         message,
-        type,
+        type, // bleibt wie gehabt
         preferred_contact,
         appointment_topic,
         appointment_window,
+
+        // ✅ NEU: echte Spalten befüllen
+        first_name,
+        last_name,
+        lead_type, // falls Spalte existiert
+
         metadata,
       } as any)
       .select("id")
@@ -258,6 +272,9 @@ export async function POST(req: NextRequest) {
       <p><b>Nächster Schritt:</b> ${escapeHtml(briefing.next_step)}</p>
       <hr/>
       <p><b>Name:</b> ${escapeHtml(name ?? "-")}</p>
+      <p><b>Vorname:</b> ${escapeHtml(first_name ?? "-")}</p>
+      <p><b>Nachname:</b> ${escapeHtml(last_name ?? "-")}</p>
+      <p><b>Lead-Type:</b> ${escapeHtml(lead_type ?? "-")}</p>
       <p><b>E-Mail:</b> ${escapeHtml(email ?? "-")}</p>
       <p><b>Telefon:</b> ${escapeHtml(phone ?? "-")}</p>
       ${pageCtxHtml}

@@ -1,26 +1,33 @@
+import * as dotenv from "dotenv";
+
+// Wichtig: .env.local immer laden (für lokale Scripts wie ingest.ts)
+dotenv.config({ path: ".env.local" });
+
 import { createClient } from "@supabase/supabase-js";
 
-// Wir unterstützen exakt deine ENV-Bezeichnungen
-const supabaseUrl = process.env.SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE;
+const SUPABASE_URL =
+  process.env.SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.SUPABASE_PROJECT_URL;
 
-// Harte Guards – wenn hier etwas fehlt, soll der Build FAILEN
-if (!supabaseUrl) {
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE || // dein Name
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  process.env.SUPABASE_ADMIN_KEY;
+
+if (!SUPABASE_URL) {
   throw new Error(
-    "ENV ERROR: SUPABASE_URL is missing. Check Vercel Environment Variables."
+    "ENV ERROR: SUPABASE_URL is missing. Check .env.local in repo root."
   );
 }
 
-if (!serviceRoleKey) {
+if (!SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error(
-    "ENV ERROR: SUPABASE_SERVICE_ROLE is missing. This key is REQUIRED for supaAdmin."
+    "ENV ERROR: SUPABASE_SERVICE_ROLE(_KEY) is missing. Check .env.local."
   );
 }
 
-// Admin-Client (umgeht RLS vollständig)
-export const supaAdmin = createClient(supabaseUrl, serviceRoleKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
+export const supaAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
 });

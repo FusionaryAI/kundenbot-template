@@ -21,7 +21,7 @@ type TenantSettings = {
 
 type LeadType = "contact" | "appointment" | "callback";
 
-// NEU: Page Context (minimalistisch)
+// Page Context (minimalistisch)
 type PageContext = {
   page_url?: string | null;
   page_path?: string | null;
@@ -55,7 +55,7 @@ type HandoffState = {
 
   preferred_contact?: "email" | "phone";
 
-  // NEU: Kontext über mehrere Turns stabil halten
+  // Kontext über mehrere Turns stabil halten
   page_context?: PageContext | null;
 };
 
@@ -250,7 +250,6 @@ function normalizeHandoff(h: any): HandoffState {
 
     preferred_contact: h?.preferred_contact,
 
-    // NEU
     page_context: h?.page_context ?? null,
   };
 }
@@ -549,7 +548,7 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
-    // NEU: context aus Request
+    // context aus Request
     const context: PageContext | null = (body?.context ?? null) as any;
 
     const url = new URL(req.url);
@@ -563,6 +562,11 @@ export async function POST(req: NextRequest) {
       undefined;
 
     let handoff = normalizeHandoff(body.handoff);
+
+    // ✅ Kontext stabilisieren: falls wir es jetzt bekommen, im handoff "einfrieren"
+    if (!handoff.page_context && context) {
+      handoff.page_context = context;
+    }
 
     if (!message) return NextResponse.json({ error: "message required" }, { status: 400 });
     if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
@@ -738,27 +742,75 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        handoff.stage = "collect_message";
-
         const t = handoff.lead_type ?? "contact";
 
-        // Wenn bereits eine Frage gespeichert ist (KB-Lücke), überspringen wir die Nachfrage
+        // ✅ FIX: Wenn message schon aus KB-Fallback gesetzt ist, NICHT in collect_message fallen,
+        // sondern direkt den Lead senden (damit die Telefonnummer nicht als "Zusatz" ans message hängt).
         if (handoff.message && t === "contact") {
-          // direkt weiter unten senden
-        } else {
-          const ask =
-            t === "appointment"
-              ? "Worum geht es bei dem Termin (kurz) und wann würde es Ihnen ungefähr passen?"
-              : t === "callback"
-                ? "Worum geht es und wann sollen wir Sie am besten zurückrufen?"
-                : "Worum geht es genau? Bitte kurz schildern.";
+          // Guard: Leads aktiviert + Empfänger gesetzt?
+          if (settings.lead_enabled === false || !settings.lead_email) {
+            handoff = { active: false, completed: false };
+            return NextResponse.json({
+              text: settings.fallback_message,
+              welcome_message: settings.welcome_message,
+              from_kb: false,
+              handoff,
+            });
+          }
+
+          const leadType: LeadType = "contact";
+          const leadMessage = handoff.message;
+
+          const result = await sendLeadViaApi(slug, {
+            type: leadType,
+            name: handoff.name,
+            email: handoff.email,
+            phone: handoff.phone,
+            preferred_contact: handoff.preferred_contact ?? null,
+            message: leadMessage,
+            appointment_topic: null,
+            appointment_window: null,
+            metadata: {
+              source: "chat",
+              lead_type: leadType,
+              first_name: handoff.first_name ?? null,
+              last_name: handoff.last_name ?? null,
+              preferred_contact: handoff.preferred_contact ?? null,
+              appointment_topic: null,
+              appointment_window: null,
+              kb_fallback_handoff: true,
+              page_context: handoff.page_context ?? null,
+            },
+          });
+
+          handoff.completed = true;
+          handoff.active = false;
+          handoff.stage = "ready";
+
           return NextResponse.json({
-            text: ask,
+            text: result.message || settings.lead_auto_reply || "Vielen Dank! Wir melden uns zeitnah.",
             welcome_message: settings.welcome_message,
             from_kb: false,
             handoff,
           });
         }
+
+        // Normalfall: kein KB-Preset => jetzt Anliegen abfragen
+        handoff.stage = "collect_message";
+
+        const ask =
+          t === "appointment"
+            ? "Worum geht es bei dem Termin (kurz) und wann würde es Ihnen ungefähr passen?"
+            : t === "callback"
+              ? "Worum geht es und wann sollen wir Sie am besten zurückrufen?"
+              : "Worum geht es genau? Bitte kurz schildern.";
+
+        return NextResponse.json({
+          text: ask,
+          welcome_message: settings.welcome_message,
+          from_kb: false,
+          handoff,
+        });
       }
 
       // 1c) Anliegen sammeln
@@ -835,9 +887,7 @@ export async function POST(req: NextRequest) {
           appointment_topic: handoff.appointment_topic ?? null,
           appointment_window: handoff.appointment_window ?? null,
           kb_fallback_handoff: leadType === "contact" ? true : false,
-
-          // NEU: Seitenkontext bevorzugt aus dem Handoff (stabil), sonst aus Request
-          page_context: handoff.page_context ?? context ?? null,
+          page_context: handoff.page_context ?? null,
         },
       });
 
@@ -867,8 +917,7 @@ export async function POST(req: NextRequest) {
         stage: "offered",
         lead_type: ruleLeadType,
         offered_at_ts: now,
-        // NEU: Kontext im Handoff mitführen
-        page_context: context ?? null,
+        page_context: handoff.page_context ?? context ?? null,
       };
 
       const offerText =
@@ -896,8 +945,7 @@ export async function POST(req: NextRequest) {
           stage: "offered",
           lead_type,
           offered_at_ts: now,
-          // NEU: Kontext im Handoff mitführen
-          page_context: context ?? null,
+          page_context: handoff.page_context ?? context ?? null,
         };
 
         const offerText =
@@ -951,7 +999,7 @@ export async function POST(req: NextRequest) {
         kb_good_enough: KB_GOOD_ENOUGH,
         best_similarity: best?.similarity ?? null,
         handoff,
-        context, // hilfreich zum Debuggen
+        context,
       });
     }
 
@@ -965,8 +1013,7 @@ export async function POST(req: NextRequest) {
           lead_type: "contact",
           offered_at_ts: now,
           message: message.trim(),
-          // NEU: Kontext im Handoff mitführen
-          page_context: context ?? null,
+          page_context: handoff.page_context ?? context ?? null,
         };
 
         return NextResponse.json({
@@ -1003,8 +1050,7 @@ export async function POST(req: NextRequest) {
         lead_type: "contact",
         offered_at_ts: now,
         message: message.trim(),
-        // NEU: Kontext im Handoff mitführen
-        page_context: context ?? null,
+        page_context: handoff.page_context ?? context ?? null,
       };
 
       return NextResponse.json({
@@ -1032,8 +1078,7 @@ export async function POST(req: NextRequest) {
           lead_type: "contact",
           offered_at_ts: now,
           message: message.trim(),
-          // NEU: Kontext im Handoff mitführen
-          page_context: context ?? null,
+          page_context: handoff.page_context ?? context ?? null,
         };
 
         return NextResponse.json({
@@ -1059,7 +1104,7 @@ export async function POST(req: NextRequest) {
 
     // D) Normal: Antwort generieren aus KB (+ Seitenkontext)
     const system = systemPrompt(tenant.name, settings.fallback_message);
-    const pageHint = buildPageHint(context);
+    const pageHint = buildPageHint(handoff.page_context ?? context ?? null);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
