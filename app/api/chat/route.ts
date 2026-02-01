@@ -42,11 +42,8 @@ type HandoffState = {
   email?: string;
   phone?: string;
 
-  // Bei KB-Lücke setzen wir die ursprüngliche Frage hier rein,
-  // und hängen später ggf. Zusatzinfos an.
   message?: string;
 
-  // Termin-spezifisch (optional)
   appointment_topic?: string | null;
   appointment_window?: string | null;
 
@@ -55,7 +52,6 @@ type HandoffState = {
 
   preferred_contact?: "email" | "phone";
 
-  // Kontext über mehrere Turns stabil halten
   page_context?: PageContext | null;
 };
 
@@ -65,9 +61,6 @@ const openai = new OpenAI({
 
 // RAG Threshold: welche Snippets kommen als Kandidaten überhaupt in Frage
 const MIN_SIMILARITY = 0.20;
-
-// Soft-Hinweis: ab hier sind Treffer meist brauchbar, aber nicht garantiert.
-// Wir verlassen uns nicht mehr blind darauf, sondern machen LLM-Gating.
 const KB_GOOD_ENOUGH = 0.22;
 
 // --------------------
@@ -96,6 +89,40 @@ Seitenkontext (wo befindet sich der Nutzer gerade?):
 - Label: ${context?.tenant_label ?? "-"}
 - Surface: ${context?.surface ?? "-"}
 `;
+}
+
+/**
+ * ✅ Robust: slug aus Referer ziehen, wenn Client ihn nicht mitsendet.
+ * Erwartet URLs wie /embed/<slug>
+ */
+function slugFromReferer(req: NextRequest): string | null {
+  const ref = req.headers.get("referer") || "";
+  const m = ref.match(/\/embed\/([^/?#]+)/);
+  if (m?.[1]) return decodeURIComponent(m[1]);
+  return null;
+}
+
+/**
+ * ✅ Robust: message aus messages[] ableiten (letzte User-Nachricht),
+ * falls body.message fehlt.
+ */
+function messageFromMessages(body: any): string {
+  const arr = body?.messages;
+  if (!Array.isArray(arr) || arr.length === 0) return "";
+
+  // akzeptiere sowohl {role,text} als auch {role,content}
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const m = arr[i];
+    if (!m) continue;
+    if (m.role !== "user") continue;
+
+    const t =
+      (typeof m.content === "string" ? m.content : "") ||
+      (typeof m.text === "string" ? m.text : "");
+    if (t && t.trim().length > 0) return t.trim();
+  }
+
+  return "";
 }
 
 // --------------------
@@ -553,12 +580,19 @@ export async function POST(req: NextRequest) {
 
     const url = new URL(req.url);
 
-    const message = (body.message as string | undefined) ?? url.searchParams.get("message") ?? "";
+    // ✅ message: bevorzugt body.message, dann query, dann body.messages[]
+    const message =
+      (body.message as string | undefined) ??
+      url.searchParams.get("message") ??
+      messageFromMessages(body) ??
+      "";
 
+    // ✅ slug: bevorzugt body.slug, dann query/header, dann referer (/embed/<slug>)
     const slug =
       (body.slug as string | undefined) ??
       url.searchParams.get("slug") ??
       req.headers.get("x-tenant-slug") ??
+      slugFromReferer(req) ??
       undefined;
 
     let handoff = normalizeHandoff(body.handoff);
@@ -744,10 +778,7 @@ export async function POST(req: NextRequest) {
 
         const t = handoff.lead_type ?? "contact";
 
-        // ✅ FIX: Wenn message schon aus KB-Fallback gesetzt ist, NICHT in collect_message fallen,
-        // sondern direkt den Lead senden (damit die Telefonnummer nicht als "Zusatz" ans message hängt).
         if (handoff.message && t === "contact") {
-          // Guard: Leads aktiviert + Empfänger gesetzt?
           if (settings.lead_enabled === false || !settings.lead_email) {
             handoff = { active: false, completed: false };
             return NextResponse.json({
@@ -795,7 +826,6 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Normalfall: kein KB-Preset => jetzt Anliegen abfragen
         handoff.stage = "collect_message";
 
         const ask =
@@ -817,7 +847,6 @@ export async function POST(req: NextRequest) {
       if (handoff.stage === "collect_message") {
         const t = handoff.lead_type ?? "contact";
 
-        // KB-Lücke: handoff.message enthält bereits die ursprüngliche Frage
         if (handoff.message && t === "contact") {
           const additional = raw.length >= 3 ? raw : null;
           if (additional && additional !== handoff.message) {
@@ -854,7 +883,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Guard: Leads aktiviert + Empfänger gesetzt?
       if (settings.lead_enabled === false || !settings.lead_email) {
         handoff = { active: false, completed: false };
         return NextResponse.json({
@@ -865,7 +893,6 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Lead absenden
       const leadType: LeadType = handoff.lead_type || "contact";
       const leadMessage = handoff.message || message.trim() || "Kontaktanfrage";
 
@@ -977,10 +1004,8 @@ export async function POST(req: NextRequest) {
       (m) => typeof m.similarity === "number" && !!m.content && m.content.trim().length > 0,
     );
 
-    // sortiert nach similarity (absteigend)
     const sorted = scored.sort((a, b) => b.similarity - a.similarity);
 
-    // Snippets-Block für Gating & Antwort
     const above = sorted
       .filter((m) => m.similarity >= MIN_SIMILARITY)
       .sort((a, b) => b.similarity - a.similarity);
@@ -989,7 +1014,7 @@ export async function POST(req: NextRequest) {
     const kbBullets = top.map((m) => `- ${m.content}`).join("\n");
     const best = sorted[0];
 
-    if (debugMode) {
+    if (url.searchParams.get("debug") === "1") {
       return NextResponse.json({
         slug,
         tenant,
@@ -1003,7 +1028,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // A) Keine Matches => Kontakt-Handoff anbieten (statt Fallback)
     if (sorted.length === 0) {
       if (settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
         handoff = {
@@ -1034,7 +1058,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // B) Schwache Matches (similarity) => Kontakt-Handoff anbieten
     if (
       best &&
       typeof best.similarity === "number" &&
@@ -1063,7 +1086,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // C) LLM-Gating – wenn nicht klar beantwortbar => Handoff anbieten
     if (settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
       const gate = await canAnswerFromKB({
         question: message,
@@ -1091,7 +1113,6 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Wenn Gate eine fertige Antwort liefert, nutzen wir sie direkt
       if (gate.answer && gate.answer.length > 0) {
         return NextResponse.json({
           text: gate.answer,
@@ -1102,7 +1123,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // D) Normal: Antwort generieren aus KB (+ Seitenkontext)
     const system = systemPrompt(tenant.name, settings.fallback_message);
     const pageHint = buildPageHint(handoff.page_context ?? context ?? null);
 
