@@ -63,6 +63,11 @@ const openai = new OpenAI({
 const MIN_SIMILARITY = 0.20;
 const KB_GOOD_ENOUGH = 0.22;
 
+// ✅ NEU: Confidence Tuning (branchenneutral)
+const HIGH_CONF_SIM = 0.35; // ab hier: sehr wahrscheinlich klar beantwortbar
+const MID_CONF_SIM = 0.25;  // ab hier: unsicher, aber Kandidat fürs LLM-Gating
+const MARGIN_CONF = 0.06;   // Abstand Top1-Top2
+
 // --------------------
 // Helpers
 // --------------------
@@ -1014,6 +1019,24 @@ export async function POST(req: NextRequest) {
     const kbBullets = top.map((m) => `- ${m.content}`).join("\n");
     const best = sorted[0];
 
+    // ✅ NEU: Margin / Confidence (branchenneutral)
+    const second = sorted[1];
+    const margin =
+      best &&
+      second &&
+      typeof best.similarity === "number" &&
+      typeof second.similarity === "number"
+        ? best.similarity - second.similarity
+        : 0;
+
+    const HIGH_CONF =
+      !!best &&
+      typeof best.similarity === "number" &&
+      (best.similarity >= HIGH_CONF_SIM || (best.similarity >= 0.30 && margin >= MARGIN_CONF));
+
+    const MID_CONF =
+      !!best && typeof best.similarity === "number" && best.similarity >= MID_CONF_SIM && !HIGH_CONF;
+
     if (url.searchParams.get("debug") === "1") {
       return NextResponse.json({
         slug,
@@ -1023,6 +1046,10 @@ export async function POST(req: NextRequest) {
         threshold: MIN_SIMILARITY,
         kb_good_enough: KB_GOOD_ENOUGH,
         best_similarity: best?.similarity ?? null,
+        second_similarity: second?.similarity ?? null,
+        margin,
+        HIGH_CONF,
+        MID_CONF,
         handoff,
         context,
       });
@@ -1058,6 +1085,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ⚠️ Leave "very weak" handoff logic (LOW_CONF) as-is
     if (
       best &&
       typeof best.similarity === "number" &&
@@ -1086,7 +1114,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
+    // ✅ NEU: LLM-Gating nur bei MID_CONF (nicht bei HIGH_CONF)
+    if (MID_CONF && settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
       const gate = await canAnswerFromKB({
         question: message,
         kbBullets,
@@ -1123,6 +1152,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ✅ HIGH_CONF (oder MID_CONF mit can_answer=true ohne answer) => normal aus KB antworten
     const system = systemPrompt(tenant.name, settings.fallback_message);
     const pageHint = buildPageHint(handoff.page_context ?? context ?? null);
 
