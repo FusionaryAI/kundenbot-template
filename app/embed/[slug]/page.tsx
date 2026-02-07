@@ -1,3 +1,4 @@
+// deploy-test
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -36,16 +37,10 @@ function slugFromPathname(): string | null {
 function IconX(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
-      <path
-        d="M7 7l10 10M17 7L7 17"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
+      <path d="M7 7l10 10M17 7L7 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
-
 function IconSend(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
@@ -55,16 +50,10 @@ function IconSend(props: React.SVGProps<SVGSVGElement>) {
         strokeWidth="1.8"
         strokeLinejoin="round"
       />
-      <path
-        d="M10.9 13.1l4.7-4.7"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
+      <path d="M10.9 13.1l4.7-4.7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }
-
 function IconSpark(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
@@ -77,7 +66,6 @@ function IconSpark(props: React.SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
-
 function IconPhone(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
@@ -90,16 +78,11 @@ function IconPhone(props: React.SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
-
 function IconClock(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
       <path d="M12 7v6l4 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <path
-        d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-      />
+      <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   );
 }
@@ -107,11 +90,7 @@ function IconClock(props: React.SVGProps<SVGSVGElement>) {
 /** Universeller KI-Avatar (Option B: leicht warm) */
 function AssistantAvatar({ size = 44 }: { size?: number }) {
   return (
-    <div
-      className="relative grid place-items-center overflow-hidden rounded-full"
-      style={{ width: size, height: size }}
-      aria-hidden="true"
-    >
+    <div className="relative grid place-items-center overflow-hidden rounded-full" style={{ width: size, height: size }} aria-hidden="true">
       <div className="absolute inset-0 rounded-full bg-white/10 ring-1 ring-white/15" />
       <div className="absolute inset-1 rounded-full bg-gradient-to-br from-indigo-200/70 via-violet-200/50 to-amber-100/40 blur-[0.2px]" />
       <div className="absolute -inset-6 rounded-full bg-gradient-to-tr from-indigo-400/25 via-violet-400/15 to-amber-300/10 blur-2xl" />
@@ -154,16 +133,12 @@ export default function Embed({ params }: EmbedProps) {
     const q = (textOverride ?? input).trim();
     if (!q || isSending) return;
 
-    // ✅ Guard: slug muss vorhanden sein, sonst kein API Call
     const slug = slugSafe || slugFromPathname() || "";
     if (!slug) {
       setMessages((m) => [
         ...m,
         { role: "user", text: q },
-        {
-          role: "assistant",
-          text: "Konfigurationsfehler: Tenant-Slug fehlt. Bitte die Seite neu laden.",
-        },
+        { role: "assistant", text: "Konfigurationsfehler: Tenant-Slug fehlt. Bitte die Seite neu laden." },
       ]);
       setInput("");
       return;
@@ -174,35 +149,27 @@ export default function Embed({ params }: EmbedProps) {
     setIsSending(true);
 
     try {
-      // ✅ Debug-Flag aus URL übernehmen (optional)
-      const debug =
-        typeof window !== "undefined"
-          ? new URLSearchParams(window.location.search).get("debug")
-          : null;
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const apiUrl = `${origin}/api/chat`;
 
-      // ✅ DER FIX: slug immer über Query + Header + Body schicken
-      const apiUrl = `/api/chat?slug=${encodeURIComponent(slug)}${debug === "1" ? "&debug=1" : ""}`;
+      const debug = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("debug") : null;
+      const finalUrl = debug === "1" ? `${apiUrl}?debug=1` : apiUrl;
 
-      const res = await fetch(apiUrl, {
+      const res = await fetch(finalUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-tenant-slug": slug, // ✅ extra robust (unabhängig von Referer/Referrer-Policy)
+          "x-tenant-slug": slug,
         },
-        body: JSON.stringify({
-          slug, // ✅ Body weiterhin mitsenden
-          message: q,
-        }),
+        body: JSON.stringify({ slug, message: q }),
       });
 
       const data = await res.json().catch(() => ({}));
 
-      // ✅ Wenn API einen Fehler liefert, zeigen wir ihn direkt (hilft Debugging)
       if (!res.ok) {
-        const errMsg =
-          typeof data?.error === "string" && data.error.trim()
-            ? data.error
-            : "API Fehler: Anfrage fehlgeschlagen.";
+        const errMsg = typeof data?.error === "string" && data.error.trim()
+          ? data.error
+          : "API Fehler: Anfrage fehlgeschlagen.";
         setMessages((m) => [...m, { role: "assistant", text: errMsg }]);
         return;
       }
@@ -214,13 +181,7 @@ export default function Embed({ params }: EmbedProps) {
 
       setMessages((m) => [...m, { role: "assistant", text: answer }]);
     } catch {
-      setMessages((m) => [
-        ...m,
-        {
-          role: "assistant",
-          text: "Technischer Fehler: Die Anfrage konnte nicht verarbeitet werden.",
-        },
-      ]);
+      setMessages((m) => [...m, { role: "assistant", text: "Technischer Fehler: Die Anfrage konnte nicht verarbeitet werden." }]);
     } finally {
       setIsSending(false);
     }
@@ -233,39 +194,17 @@ export default function Embed({ params }: EmbedProps) {
     }
   }
 
-  // Optional: Höhe an Parent melden
-  useEffect(() => {
-    const h = scrollRef.current?.scrollHeight ?? 560;
-    try {
-      window.parent.postMessage({ type: "__widget_height__", height: h }, "*");
-    } catch {
-      // egal
-    }
-  }, [messages, isOpen]);
-
   const quickActions = [
-    {
-      label: "Was kann der Assistent?",
-      text: "Was kannst du grundsätzlich für mich tun?",
-      icon: <IconSpark className="h-4 w-4" />,
-    },
-    {
-      label: "Kontakt aufnehmen",
-      text: "Wie kann ich euch kontaktieren?",
-      icon: <IconPhone className="h-4 w-4" />,
-    },
-    {
-      label: "Öffnungszeiten",
-      text: "Wie sind die Öffnungszeiten?",
-      icon: <IconClock className="h-4 w-4" />,
-    },
+    { label: "Was kann der Assistent?", text: "Was kannst du grundsätzlich für mich tun?", icon: <IconSpark className="h-4 w-4" /> },
+    { label: "Kontakt aufnehmen", text: "Wie kann ich euch kontaktieren?", icon: <IconPhone className="h-4 w-4" /> },
+    { label: "Öffnungszeiten", text: "Wie sind die Öffnungszeiten?", icon: <IconClock className="h-4 w-4" /> },
   ];
 
   return (
-    <main className="h-screen w-screen bg-transparent">
-      {/* Container im iFrame */}
-      <div className="fixed bottom-0 right-0 p-4">
-        {/* Closed launcher */}
+    // ✅ Wichtig: iframe-friendly Höhe
+    <main className="h-full w-full bg-transparent">
+      {/* ✅ Kein fixed-Container mehr (der clippt im iframe). Stattdessen: full-height layout */}
+      <div className="h-full w-full p-4 box-border">
         {!isOpen && (
           <button
             type="button"
@@ -278,9 +217,9 @@ export default function Embed({ params }: EmbedProps) {
         )}
 
         {isOpen && (
-          <section className="w-[380px] max-w-[92vw] overflow-hidden rounded-[28px] bg-white/75 shadow-[0_24px_80px_rgba(0,0,0,0.28)] ring-1 ring-black/10 backdrop-blur-xl">
-            {/* Header (Glass + Dark) */}
-            <header className="relative overflow-hidden px-5 py-4">
+          // ✅ h-full + flex-col: Inhalt passt immer in iframe
+          <section className="h-full w-[380px] max-w-[92vw] overflow-hidden rounded-[28px] bg-white/75 shadow-[0_24px_80px_rgba(0,0,0,0.28)] ring-1 ring-black/10 backdrop-blur-xl flex flex-col">
+            <header className="relative overflow-hidden px-5 py-4 shrink-0">
               <div className="absolute inset-0 bg-gradient-to-b from-[#0b0b0c]/95 to-[#0b0b0c]/70" />
               <div className="absolute -top-24 left-10 h-48 w-48 rounded-full bg-gradient-to-tr from-indigo-400/18 via-violet-400/10 to-amber-300/8 blur-3xl" />
               <div className="relative flex items-center justify-between">
@@ -313,21 +252,17 @@ export default function Embed({ params }: EmbedProps) {
               </div>
             </header>
 
-            {/* Body */}
-            <div className="px-4 pb-4 pt-4">
-              {/* Messages */}
+            {/* ✅ Flex body (min-h-0 ist entscheidend für korrektes Scrollen) */}
+            <div className="px-4 pb-4 pt-4 flex-1 min-h-0 flex flex-col">
+              {/* ✅ Messages: flex-1 statt fixed height */}
               <div
                 ref={scrollRef}
-                className="h-[380px] space-y-4 overflow-y-auto rounded-[22px] bg-white/80 p-4 ring-1 ring-black/5 backdrop-blur"
+                className="min-h-0 flex-1 space-y-4 overflow-y-auto rounded-[22px] bg-white/80 p-4 ring-1 ring-black/5 backdrop-blur"
               >
                 {messages.map((m, i) => {
                   const isUser = m.role === "user";
-
                   return (
-                    <div
-                      key={i}
-                      className={isUser ? "flex justify-end" : "flex justify-start gap-2"}
-                    >
+                    <div key={i} className={isUser ? "flex justify-end" : "flex justify-start gap-2"}>
                       {!isUser && (
                         <div className="mt-0.5 shrink-0">
                           <AssistantAvatar size={28} />
@@ -347,18 +282,10 @@ export default function Embed({ params }: EmbedProps) {
                         ) : (
                           <Markdown
                             components={{
-                              ul: ({ children }: any) => (
-                                <ul className="ml-5 list-disc space-y-2">{children}</ul>
-                              ),
-                              ol: ({ children }: any) => (
-                                <ol className="ml-5 list-decimal space-y-2">{children}</ol>
-                              ),
-                              li: ({ children }: any) => (
-                                <li className="leading-relaxed">{children}</li>
-                              ),
-                              p: ({ children }: any) => (
-                                <p className="mb-2 leading-relaxed last:mb-0">{children}</p>
-                              ),
+                              ul: ({ children }: any) => <ul className="ml-5 list-disc space-y-2">{children}</ul>,
+                              ol: ({ children }: any) => <ol className="ml-5 list-decimal space-y-2">{children}</ol>,
+                              li: ({ children }: any) => <li className="leading-relaxed">{children}</li>,
+                              p: ({ children }: any) => <p className="mb-2 leading-relaxed last:mb-0">{children}</p>,
                             }}
                           >
                             {m.text}
@@ -388,12 +315,9 @@ export default function Embed({ params }: EmbedProps) {
                 )}
               </div>
 
-              {/* Suggested questions */}
-              <div className="mt-4">
-                <div className="mb-2 text-xs font-medium tracking-wide text-slate-500">
-                  Empfohlene Fragen
-                </div>
-
+              {/* Quick actions */}
+              <div className="mt-4 shrink-0">
+                <div className="mb-2 text-xs font-medium tracking-wide text-slate-500">Empfohlene Fragen</div>
                 <div className="grid grid-cols-2 gap-2">
                   {quickActions.map((a) => (
                     <button
@@ -415,7 +339,7 @@ export default function Embed({ params }: EmbedProps) {
 
               {/* Input */}
               <form
-                className="mt-4 flex items-center gap-2"
+                className="mt-4 flex items-center gap-2 shrink-0"
                 onSubmit={(e) => {
                   e.preventDefault();
                   send();
@@ -442,7 +366,7 @@ export default function Embed({ params }: EmbedProps) {
                 </button>
               </form>
 
-              <div className="mt-2 text-right text-[10px] tracking-wide text-slate-400">
+              <div className="mt-2 text-right text-[10px] tracking-wide text-slate-400 shrink-0">
                 Powered by Fusionary AI
               </div>
             </div>
