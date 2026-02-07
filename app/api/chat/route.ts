@@ -208,9 +208,61 @@ function isCapabilityQuestion(text: string) {
   ];
 
   if (patterns.some((p) => t.includes(p))) return true;
-  if (t === "was kannst du?" || t === "was kannst du" || t === "was kann der assistent?") return true;
+
+  if (t === "was kannst du?" || t === "was kannst du" || t === "was kann der assistent?")
+    return true;
 
   return false;
+}
+
+// ✅ Kontakt-Info Fragen erkennen (damit wir NICHT direkt Handoff starten)
+function isContactInfoQuestion(text: string) {
+  const t = (text || "").toLowerCase();
+
+  const contactIntents = [
+    "kontakt",
+    "kontakti",
+    "erreichen",
+    "telefon",
+    "rufnummer",
+    "nummer",
+    "e-mail",
+    "email",
+    "mail",
+    "adresse",
+    "anschrift",
+    "anfahrt",
+    "wo finde ich",
+    "standort",
+    "öffnung",
+    "öffnungszeiten",
+    "sprechzeiten",
+    "wann habt ihr offen",
+    "wann geöffnet",
+  ];
+
+  // explizit „Terminanfrage“ ist trotzdem eher Lead
+  if (t.includes("termin") && (t.includes("machen") || t.includes("vereinbaren") || t.includes("buchen")))
+    return false;
+
+  return contactIntents.some((k) => t.includes(k));
+}
+
+// ✅ Softes Handoff (als Hinweis am Ende, ohne direkt in Flow zu springen)
+function appendSoftHandoffHint(text: string, leadEnabled: boolean, medicalTenant: boolean) {
+  if (!leadEnabled) return text;
+
+  const hint = medicalTenant
+    ? "\n\nWenn Sie möchten, kann ich auch eine **Terminanfrage / Rückrufbitte** aufnehmen und an das Team weiterleiten."
+    : "\n\nWenn Sie möchten, kann ich Ihre Anfrage auch **ans Team weiterleiten**.";
+
+  // Duplizierung vermeiden
+  const lower = (text || "").toLowerCase();
+  if (lower.includes("weiterleiten") || lower.includes("rückruf") || lower.includes("terminanfrage")) {
+    return text;
+  }
+
+  return `${text}${hint}`;
 }
 
 // ✅ Saubere Capability-Antworten (medizinisch vs. neutral)
@@ -235,56 +287,6 @@ function buildCapabilityAnswer(params: { tenantName: string; medicalTenant: bool
     `- Wenn etwas unklar ist: Ihre Anfrage aufnehmen und ans Team weiterleiten\n\n` +
     `**Hinweis:** Ich ersetze keine fachliche Beratung (z. B. rechtlich/medizinisch/finanziell).`
   );
-}
-
-// ✅ NEU: Kontaktinfo-Fragen (sollen NICHT sofort Handoff triggern)
-function isContactInfoQuestion(text: string) {
-  const t = (text || "").toLowerCase();
-
-  // bewusst breit für typische Praxis-/Unternehmensfragen
-  const keywords = [
-    "kontakt",
-    "kontakti",
-    "erreichen",
-    "telefon",
-    "telefonnummer",
-    "ruf",
-    "anrufen",
-    "email",
-    "e-mail",
-    "mail",
-    "adresse",
-    "anschrift",
-    "standort",
-    "anfahrt",
-    "weg",
-    "öffnungszeiten",
-    "sprechzeiten",
-    "uhrzeit",
-    "zeiten",
-    "wann habt ihr offen",
-    "wann geöffnet",
-  ];
-
-  // kurze Spezialfälle
-  if (t === "kontakt?" || t === "kontakt" || t === "wie erreichen?" || t === "wie erreichen") return true;
-
-  return keywords.some((k) => t.includes(k));
-}
-
-// ✅ Optionaler, „smoother“ Handoff-Hinweis OHNE direkt den Flow zu starten
-function appendSoftHandoffHint(text: string, enabled: boolean, medicalTenant: boolean) {
-  if (!enabled) return text;
-
-  const hint = medicalTenant
-    ? "Wenn Sie möchten, kann ich auch eine **Terminanfrage oder Rückrufbitte** an das Team weiterleiten."
-    : "Wenn Sie möchten, kann ich Ihr Anliegen auch an das Team weiterleiten.";
-
-  // nicht doppeln, falls schon drin
-  const low = (text || "").toLowerCase();
-  if (low.includes("weiterleiten") || low.includes("rückruf") || low.includes("terminanfrage")) return text;
-
-  return `${text}\n\n${hint}`;
 }
 
 // --------------------
@@ -768,7 +770,11 @@ export async function POST(req: NextRequest) {
     const tenant = await getTenantBySlug(slug);
     const settings = await getTenantSettings(tenant.id);
 
+    // ✅ FIX: boolean normalisieren (verhindert TS-Narrowing-Probleme)
+    const leadEnabled = settings.lead_enabled !== false;
+
     const medicalTenant = isMedicalTenant(tenant.name, handoff.page_context ?? context ?? null);
+    const contactInfo = isContactInfoQuestion(message);
 
     const safetyHint = medicalTenant
       ? `- Du führst keine medizinische Beratung/Diagnose/Behandlung durch und gibst keine Dosierungs- oder Therapieempfehlungen.
@@ -787,13 +793,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ✅ Harte Blockade für medizinische Beratungsfragen
+    // ✅ harte Blockade für medizinische Beratungsfragen
     if (medicalTenant && looksLikeMedicalAdviceQuestion(message)) {
       const now = Date.now();
       const offeredRecently =
         typeof handoff.offered_at_ts === "number" && now - handoff.offered_at_ts < 120_000;
 
-      if (settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
+      if (leadEnabled && !handoff.completed && !offeredRecently) {
         handoff = {
           active: false,
           completed: false,
@@ -991,7 +997,7 @@ export async function POST(req: NextRequest) {
         const t = handoff.lead_type ?? "contact";
 
         if (handoff.message && t === "contact") {
-          if (settings.lead_enabled === false || !settings.lead_email) {
+          if (!leadEnabled || !settings.lead_email) {
             handoff = { active: false, completed: false };
             return NextResponse.json({
               text: settings.fallback_message,
@@ -1096,7 +1102,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      if (settings.lead_enabled === false || !settings.lead_email) {
+      if (!leadEnabled || !settings.lead_email) {
         handoff = { active: false, completed: false };
         return NextResponse.json({
           text: settings.fallback_message,
@@ -1148,12 +1154,12 @@ export async function POST(req: NextRequest) {
     const offeredRecently =
       typeof handoff.offered_at_ts === "number" && now - handoff.offered_at_ts < 120_000;
 
-    // ✅ NEU: Kontaktinfo-Fragen NICHT sofort in Handoff leiten
-    const contactInfo = isContactInfoQuestion(message);
+    // ✅ Kontakt-Info Fragen: NICHT sofort Handoff anbieten -> erst RAG beantworten
+    const bypassOffer = contactInfo;
 
-    const ruleLeadType = contactInfo ? null : detectLeadIntentRuleFirst(message);
+    const ruleLeadType = detectLeadIntentRuleFirst(message);
 
-    if (ruleLeadType && settings.lead_enabled !== false && !offeredRecently && !handoff.completed) {
+    if (!bypassOffer && ruleLeadType && leadEnabled && !offeredRecently && !handoff.completed) {
       handoff = {
         active: false,
         completed: false,
@@ -1179,7 +1185,7 @@ export async function POST(req: NextRequest) {
     }
 
     // --- 3) Optional LLM Klassifikation ---
-    if (!ruleLeadType && !contactInfo && settings.lead_enabled !== false && !offeredRecently && !handoff.completed) {
+    if (!bypassOffer && !ruleLeadType && leadEnabled && !offeredRecently && !handoff.completed) {
       const { offer_handoff, lead_type } = await classifyLeadIntentLLM(message);
       if (offer_handoff) {
         handoff = {
@@ -1252,6 +1258,7 @@ export async function POST(req: NextRequest) {
         slug,
         tenant,
         settings,
+        leadEnabled,
         matches: sorted,
         threshold: MIN_SIMILARITY,
         kb_good_enough: KB_GOOD_ENOUGH,
@@ -1262,12 +1269,12 @@ export async function POST(req: NextRequest) {
         MID_CONF,
         handoff,
         context,
+        contactInfo,
       });
     }
 
-    // ✅ Smooth: Wenn keine Treffer -> nicht „hart“ fallbacken, sondern direkt „kann ich nicht sicher, kann weiterleiten“
     if (sorted.length === 0) {
-      if (settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
+      if (leadEnabled && !handoff.completed && !offeredRecently) {
         handoff = {
           active: false,
           completed: false,
@@ -1280,8 +1287,8 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({
           text:
-            "Dazu habe ich aktuell keine verlässlichen Informationen hinterlegt. " +
-            "Ich kann Ihr Anliegen aber gern an das Team weiterleiten – soll ich das tun?",
+            "Dazu habe ich aktuell keine hinterlegten Informationen. " +
+            "Soll ich Ihre Frage an das Team weiterleiten, damit Sie eine verlässliche Antwort erhalten?",
           welcome_message: settings.welcome_message,
           from_kb: false,
           handoff,
@@ -1296,12 +1303,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ⚠️ sehr schwach -> Handoff anbieten (smooth wording)
     if (
       best &&
       typeof best.similarity === "number" &&
       best.similarity < KB_GOOD_ENOUGH &&
-      settings.lead_enabled !== false &&
+      leadEnabled &&
       !handoff.completed &&
       !offeredRecently
     ) {
@@ -1317,16 +1323,16 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         text:
-          "Dazu finde ich in den hinterlegten Infos nur wenig und möchte nichts Falsches sagen. " +
-          "Ich kann Ihre Frage aber gern an das Team weiterleiten – soll ich das tun?",
+          "Ich habe dazu nur begrenzte Informationen hinterlegt. " +
+          "Soll ich Ihre Frage an das Team weiterleiten, damit Sie eine verlässliche Antwort erhalten?",
         welcome_message: settings.welcome_message,
         from_kb: false,
         handoff,
       });
     }
 
-    // MID_CONF: LLM-Gating
-    if (MID_CONF && settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
+    // ✅ MID_CONF => LLM-Gating (und bei Kontaktfragen danach Soft-Handoff-Hinweis)
+    if (MID_CONF && leadEnabled && !handoff.completed && !offeredRecently) {
       const gate = await canAnswerFromKB({
         question: message,
         kbBullets,
@@ -1346,7 +1352,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           text:
             "Das kann ich aktuell nicht verlässlich aus den hinterlegten Informationen beantworten. " +
-            "Ich kann es aber gern an das Team weiterleiten – soll ich das tun?",
+            "Soll ich Ihre Frage an das Team weiterleiten?",
           welcome_message: settings.welcome_message,
           from_kb: false,
           handoff,
@@ -1355,10 +1361,12 @@ export async function POST(req: NextRequest) {
 
       if (gate.answer && gate.answer.length > 0) {
         let out = gate.answer;
+
         // ✅ bei Kontaktfragen: optionaler Handoff-Hinweis, aber nicht direkt starten
         if (contactInfo) {
-          out = appendSoftHandoffHint(out, settings.lead_enabled !== false, medicalTenant);
+          out = appendSoftHandoffHint(out, leadEnabled, medicalTenant);
         }
+
         return NextResponse.json({
           text: out,
           welcome_message: settings.welcome_message,
@@ -1368,7 +1376,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // HIGH_CONF (oder MID_CONF can_answer true ohne answer) => normal aus KB antworten
+    // ✅ HIGH_CONF (oder MID_CONF ohne direkte Antwort) => normal aus KB antworten
     const system = systemPrompt(tenant.name, settings.fallback_message, safetyHint);
     const pageHint = buildPageHint(handoff.page_context ?? context ?? null);
 
@@ -1413,9 +1421,9 @@ WICHTIG:
       }
     }
 
-    // ✅ Kontaktfragen: Antwort geben UND optional Handoff-Hinweis (ohne Stage="offered")
+    // ✅ bei Kontaktfragen: Soft-Handoff hinten dran (optional)
     if (contactInfo) {
-      text = appendSoftHandoffHint(text, settings.lead_enabled !== false, medicalTenant);
+      text = appendSoftHandoffHint(text, leadEnabled, medicalTenant);
     }
 
     return NextResponse.json({
