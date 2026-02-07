@@ -63,10 +63,16 @@ const openai = new OpenAI({
 const MIN_SIMILARITY = 0.20;
 const KB_GOOD_ENOUGH = 0.22;
 
-// ✅ NEU: Confidence Tuning (branchenneutral)
-const HIGH_CONF_SIM = 0.35; // ab hier: sehr wahrscheinlich klar beantwortbar
-const MID_CONF_SIM = 0.25;  // ab hier: unsicher, aber Kandidat fürs LLM-Gating
-const MARGIN_CONF = 0.06;   // Abstand Top1-Top2
+// ✅ Confidence Tuning
+const HIGH_CONF_SIM = 0.35;
+const MID_CONF_SIM = 0.25;
+const MARGIN_CONF = 0.06;
+
+// ✅ Medizin-Safety
+const MEDICAL_SAFETY_FALLBACK =
+  "Ich kann keine medizinische Beratung, Diagnose oder Behandlung durchführen. " +
+  "Für eine medizinische Einschätzung wenden Sie sich bitte direkt an die Praxis oder den Notdienst. " +
+  "Gern nenne ich Ihnen Praxisinfos (Öffnungszeiten, Kontakt, Leistungen laut Website).";
 
 // --------------------
 // Helpers
@@ -96,10 +102,6 @@ Seitenkontext (wo befindet sich der Nutzer gerade?):
 `;
 }
 
-/**
- * ✅ Robust: slug aus Referer ziehen, wenn Client ihn nicht mitsendet.
- * Erwartet URLs wie /embed/<slug>
- */
 function slugFromReferer(req: NextRequest): string | null {
   const ref = req.headers.get("referer") || "";
   const m = ref.match(/\/embed\/([^/?#]+)/);
@@ -107,15 +109,10 @@ function slugFromReferer(req: NextRequest): string | null {
   return null;
 }
 
-/**
- * ✅ Robust: message aus messages[] ableiten (letzte User-Nachricht),
- * falls body.message fehlt.
- */
 function messageFromMessages(body: any): string {
   const arr = body?.messages;
   if (!Array.isArray(arr) || arr.length === 0) return "";
 
-  // akzeptiere sowohl {role,text} als auch {role,content}
   for (let i = arr.length - 1; i >= 0; i--) {
     const m = arr[i];
     if (!m) continue;
@@ -128,6 +125,122 @@ function messageFromMessages(body: any): string {
   }
 
   return "";
+}
+
+function isMedicalTenant(tenantName: string, context: PageContext | null) {
+  const s = `${tenantName || ""} ${context?.tenant_label || ""}`.toLowerCase();
+  return (
+    s.includes("arzt") ||
+    s.includes("praxis") ||
+    s.includes("medizin") ||
+    s.includes("zahnarzt") ||
+    s.includes("klinik") ||
+    s.includes("therapie") ||
+    s.includes("physio") ||
+    s.includes("apotheke")
+  );
+}
+
+function looksLikeMedicalAdviceQuestion(text: string) {
+  const t = (text || "").toLowerCase();
+
+  const isCapabilityQuestion =
+    t.includes("was kannst du") ||
+    t.includes("was kann der assistent") ||
+    t.includes("wobei kannst du helfen") ||
+    t.includes("wie kannst du helfen") ||
+    t.includes("was machst du");
+
+  if (isCapabilityQuestion) return false;
+
+  const medicalAdviceSignals = [
+    "ich habe",
+    "ich hab",
+    "symptom",
+    "schmerzen",
+    "fieber",
+    "husten",
+    "durchfall",
+    "übelkeit",
+    "schwindel",
+    "ausschlag",
+    "entzündung",
+    "blut",
+    "krampf",
+    "herz",
+    "atemnot",
+    "brustschmerz",
+    "diagnose",
+    "behandeln",
+    "therapie",
+    "medikament",
+    "tablette",
+    "ibuprofen",
+    "paracetamol",
+    "antibiotika",
+    "dosierung",
+    "dosis",
+    "wechselwirkung",
+    "schwanger",
+    "stillen",
+    "notfall",
+    "dringend",
+    "sofort",
+  ];
+
+  return medicalAdviceSignals.some((k) => t.includes(k));
+}
+
+// ✅ NEU: Capability-Fragen erkennen (damit wir NICHT aus KB halluzinieren)
+function isCapabilityQuestion(text: string) {
+  const t = (text || "").trim().toLowerCase();
+
+  // sehr gezielt, damit wir nicht normale Fragen erwischen
+  const patterns = [
+    "was kannst du",
+    "was kann der assistent",
+    "was kann dieser assistent",
+    "wobei kannst du helfen",
+    "wie kannst du helfen",
+    "was machst du",
+    "was sind deine funktionen",
+    "welche funktionen hast du",
+    "was kann der bot",
+  ];
+
+  if (patterns.some((p) => t.includes(p))) return true;
+
+  // kurze Varianten
+  if (t === "was kannst du?" || t === "was kannst du" || t === "was kann der assistent?") return true;
+
+  return false;
+}
+
+// ✅ NEU: Saubere Capability-Antworten (medizinisch vs. neutral)
+function buildCapabilityAnswer(params: {
+  tenantName: string;
+  medicalTenant: boolean;
+}): string {
+  if (params.medicalTenant) {
+    return (
+      `Ich bin der digitale Assistent der Praxis „${params.tenantName}“ und helfe Ihnen mit Praxis-Informationen.\n\n` +
+      `**Das kann ich für Sie tun:**\n` +
+      `- Öffnungszeiten, telefonische Erreichbarkeit, Adresse & Anfahrt\n` +
+      `- Kontaktmöglichkeiten (Telefon/E-Mail) und organisatorische Fragen\n` +
+      `- Leistungen/Angebote **laut Website** (ohne medizinische Bewertung)\n` +
+      `- Terminanfrage oder Rückrufwunsch aufnehmen und ans Team weiterleiten\n\n` +
+      `**Wichtig:** Ich gebe **keine medizinische Beratung/Diagnosen/Therapie- oder Dosierungsempfehlungen**.`
+    );
+  }
+
+  return (
+    `Ich bin der digitale Assistent von „${params.tenantName}“.\n\n` +
+    `**Das kann ich für Sie tun:**\n` +
+    `- Fragen zu Öffnungszeiten, Kontakt, Standort und organisatorischen Abläufen\n` +
+    `- Informationen aus den hinterlegten Unternehmensinhalten (Website/FAQ)\n` +
+    `- Wenn etwas unklar ist: Ihre Anfrage aufnehmen und ans Team weiterleiten\n\n` +
+    `**Hinweis:** Ich ersetze keine fachliche Beratung (z. B. rechtlich/medizinisch/finanziell).`
+  );
 }
 
 // --------------------
@@ -191,7 +304,7 @@ async function ragSearch(tenantId: string, query: string, k = 4): Promise<RagMat
   return (data ?? []) as RagMatch[];
 }
 
-function systemPrompt(companyName: string, fallbackMessage: string) {
+function systemPrompt(companyName: string, fallbackMessage: string, safetyHint: string) {
   return `Rolle:
 Du bist ein professioneller digitaler Assistent des Unternehmens "${companyName}".
 
@@ -202,6 +315,9 @@ REGELN:
 - Verwende kurze Absätze.
 - Listen nur, wenn sinnvoll (max. 5–7 Punkte).
 - Keine Begrüßung, kein Smalltalk, keine Abschlussfloskeln.
+
+SICHERHEIT / KOMPLIANCE:
+${safetyHint}
 
 ZIEL:
 Hilf der anfragenden Person schnell und zuverlässig mit Informationen des Unternehmens weiter.`;
@@ -518,7 +634,7 @@ Text:
 }
 
 // --------------------
-// Lead Delivery: absolute URL
+// Lead Delivery
 // --------------------
 
 async function sendLeadViaApi(
@@ -580,19 +696,15 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
-    // context aus Request
     const context: PageContext | null = (body?.context ?? null) as any;
-
     const url = new URL(req.url);
 
-    // ✅ message: bevorzugt body.message, dann query, dann body.messages[]
     const message =
       (body.message as string | undefined) ??
       url.searchParams.get("message") ??
       messageFromMessages(body) ??
       "";
 
-    // ✅ slug: bevorzugt body.slug, dann query/header, dann referer (/embed/<slug>)
     const slug =
       (body.slug as string | undefined) ??
       url.searchParams.get("slug") ??
@@ -602,7 +714,6 @@ export async function POST(req: NextRequest) {
 
     let handoff = normalizeHandoff(body.handoff);
 
-    // ✅ Kontext stabilisieren: falls wir es jetzt bekommen, im handoff "einfrieren"
     if (!handoff.page_context && context) {
       handoff.page_context = context;
     }
@@ -613,7 +724,59 @@ export async function POST(req: NextRequest) {
     const tenant = await getTenantBySlug(slug);
     const settings = await getTenantSettings(tenant.id);
 
-    const debugMode = url.searchParams.get("debug") === "1";
+    const medicalTenant = isMedicalTenant(tenant.name, handoff.page_context ?? context ?? null);
+
+    const safetyHint = medicalTenant
+      ? `- Du führst keine medizinische Beratung/Diagnose/Behandlung durch und gibst keine Dosierungs- oder Therapieempfehlungen.
+- Du darfst Leistungen der Praxis nur als "die Praxis bietet laut Website ..." beschreiben.
+- Wenn eine Frage nach Symptomen/Behandlung/Medikation/Diagnose klingt: antworte kurz mit Hinweis + biete Termin-/Kontaktweiterleitung an.`
+      : `- Du gibst keine rechtliche/medizinische/finanzielle Fachberatung.
+- Du kannst Informationen aus dem Unternehmenswissen wiedergeben und bei Bedarf an das Team weiterleiten.`;
+
+    // ✅ NEU: Capability-Fragen immer aus Template beantworten (kein KB!)
+    if (isCapabilityQuestion(message)) {
+      return NextResponse.json({
+        text: buildCapabilityAnswer({ tenantName: tenant.name, medicalTenant }),
+        welcome_message: settings.welcome_message,
+        from_kb: false,
+        handoff,
+      });
+    }
+
+    // ✅ NEU: harte Blockade für medizinische Beratungsfragen
+    if (medicalTenant && looksLikeMedicalAdviceQuestion(message)) {
+      const now = Date.now();
+      const offeredRecently =
+        typeof handoff.offered_at_ts === "number" && now - handoff.offered_at_ts < 120_000;
+
+      if (settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
+        handoff = {
+          active: false,
+          completed: false,
+          stage: "offered",
+          lead_type: "appointment",
+          offered_at_ts: now,
+          message: message.trim(),
+          page_context: handoff.page_context ?? context ?? null,
+        };
+
+        return NextResponse.json({
+          text:
+            MEDICAL_SAFETY_FALLBACK +
+            "\n\nSoll ich Ihre Anfrage an das Team weiterleiten und eine Terminanfrage aufnehmen?",
+          welcome_message: settings.welcome_message,
+          from_kb: false,
+          handoff,
+        });
+      }
+
+      return NextResponse.json({
+        text: MEDICAL_SAFETY_FALLBACK,
+        welcome_message: settings.welcome_message,
+        from_kb: false,
+        handoff,
+      });
+    }
 
     if (handoff.completed) {
       handoff = { active: false, completed: true };
@@ -851,6 +1014,7 @@ export async function POST(req: NextRequest) {
       // 1c) Anliegen sammeln
       if (handoff.stage === "collect_message") {
         const t = handoff.lead_type ?? "contact";
+        const raw = message.trim();
 
         if (handoff.message && t === "contact") {
           const additional = raw.length >= 3 ? raw : null;
@@ -1019,7 +1183,6 @@ export async function POST(req: NextRequest) {
     const kbBullets = top.map((m) => `- ${m.content}`).join("\n");
     const best = sorted[0];
 
-    // ✅ NEU: Margin / Confidence (branchenneutral)
     const second = sorted[1];
     const margin =
       best &&
@@ -1085,7 +1248,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ⚠️ Leave "very weak" handoff logic (LOW_CONF) as-is
     if (
       best &&
       typeof best.similarity === "number" &&
@@ -1114,7 +1276,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ✅ NEU: LLM-Gating nur bei MID_CONF (nicht bei HIGH_CONF)
     if (MID_CONF && settings.lead_enabled !== false && !handoff.completed && !offeredRecently) {
       const gate = await canAnswerFromKB({
         question: message,
@@ -1152,8 +1313,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ✅ HIGH_CONF (oder MID_CONF mit can_answer=true ohne answer) => normal aus KB antworten
-    const system = systemPrompt(tenant.name, settings.fallback_message);
+    const system = systemPrompt(tenant.name, settings.fallback_message, safetyHint);
     const pageHint = buildPageHint(handoff.page_context ?? context ?? null);
 
     const completion = await openai.chat.completions.create({
@@ -1170,12 +1330,32 @@ Unternehmenswissen:
 ${kbBullets}
 
 Bitte antworte strukturiert, sachlich, hilfreich und ohne Begrüßung.
-WICHTIG: Wenn der Seitenkontext relevant ist, beziehe ihn knapp ein. Wenn nicht, ignoriere ihn.`,
+WICHTIG:
+- Wenn es um medizinische Themen geht: formuliere ausschließlich als "Die Praxis bietet laut Website ..." und gib keine medizinische Beratung/Diagnose/Behandlungsempfehlungen.`,
         },
       ],
     });
 
-    const text = completion.choices[0]?.message?.content ?? settings.fallback_message;
+    let text = completion.choices[0]?.message?.content ?? settings.fallback_message;
+
+    // Post-Guard
+    if (medicalTenant) {
+      const t = text.toLowerCase();
+      const unsafeClaims = [
+        "ich behandle",
+        "ich diagnostiziere",
+        "ich empfehle",
+        "ich rate ihnen",
+        "nehmen sie",
+        "dosierung",
+        "therapieplan",
+        "ich kann sie behandeln",
+        "ich kann ihnen eine therapie",
+      ];
+      if (unsafeClaims.some((k) => t.includes(k))) {
+        text = MEDICAL_SAFETY_FALLBACK;
+      }
+    }
 
     return NextResponse.json({
       text,
