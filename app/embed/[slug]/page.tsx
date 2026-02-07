@@ -25,6 +25,13 @@ function getTenantLabel(slug?: string) {
 
 const Markdown = ReactMarkdown as any;
 
+/** ✅ Robust: slug aus URL-Pfad ziehen, falls params.slug mal fehlt */
+function slugFromPathname(): string | null {
+  if (typeof window === "undefined") return null;
+  const m = window.location.pathname.match(/\/embed\/([^/?#]+)/);
+  return m?.[1] ? decodeURIComponent(m[1]) : null;
+}
+
 /** Minimaler Inline-Iconsatz (ohne externe Lib) */
 function IconX(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -87,12 +94,7 @@ function IconPhone(props: React.SVGProps<SVGSVGElement>) {
 function IconClock(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
-      <path
-        d="M12 7v6l4 2"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
+      <path d="M12 7v6l4 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       <path
         d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
         stroke="currentColor"
@@ -110,25 +112,25 @@ function AssistantAvatar({ size = 44 }: { size?: number }) {
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
-      {/* Outer ring / glass */}
       <div className="absolute inset-0 rounded-full bg-white/10 ring-1 ring-white/15" />
-      {/* Gradient core */}
       <div className="absolute inset-1 rounded-full bg-gradient-to-br from-indigo-200/70 via-violet-200/50 to-amber-100/40 blur-[0.2px]" />
-      {/* Glow */}
       <div className="absolute -inset-6 rounded-full bg-gradient-to-tr from-indigo-400/25 via-violet-400/15 to-amber-300/10 blur-2xl" />
-      {/* Specular highlight */}
       <div className="absolute left-2 top-2 h-1/3 w-1/3 rounded-full bg-white/35 blur-[1px]" />
-      {/* Center dot */}
       <div className="absolute h-2.5 w-2.5 rounded-full bg-white/70 shadow-[0_0_20px_rgba(255,255,255,0.35)]" />
-      {/* Gentle pulse (subtle) */}
       <div className="absolute inset-0 rounded-full animate-[pulse_6s_ease-in-out_infinite] bg-white/5" />
     </div>
   );
 }
 
 export default function Embed({ params }: EmbedProps) {
-  const slug = params.slug;
-  const tenantLabel = useMemo(() => getTenantLabel(slug), [slug]);
+  // ✅ slug stabilisieren (params -> pathname fallback)
+  const [slugSafe, setSlugSafe] = useState<string>(() => params?.slug || "");
+  useEffect(() => {
+    const s = params?.slug || slugFromPathname() || "";
+    setSlugSafe(s);
+  }, [params?.slug]);
+
+  const tenantLabel = useMemo(() => getTenantLabel(slugSafe), [slugSafe]);
 
   const [isOpen, setIsOpen] = useState(true);
   const [input, setInput] = useState("");
@@ -137,9 +139,7 @@ export default function Embed({ params }: EmbedProps) {
   const welcomeText =
     "Hallo! Ich bin der digitale Assistent. Stellen Sie mir Ihre Frage – ich helfe Ihnen sofort weiter.";
 
-  const [messages, setMessages] = useState<Message[]>([
-    { role: "assistant", text: welcomeText },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([{ role: "assistant", text: welcomeText }]);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -154,20 +154,61 @@ export default function Embed({ params }: EmbedProps) {
     const q = (textOverride ?? input).trim();
     if (!q || isSending) return;
 
+    // ✅ Guard: slug muss vorhanden sein, sonst kein API Call
+    const slug = slugSafe || slugFromPathname() || "";
+    if (!slug) {
+      setMessages((m) => [
+        ...m,
+        { role: "user", text: q },
+        {
+          role: "assistant",
+          text: "Konfigurationsfehler: Tenant-Slug fehlt. Bitte die Seite neu laden.",
+        },
+      ]);
+      setInput("");
+      return;
+    }
+
     setInput("");
     setMessages((m) => [...m, { role: "user", text: q }]);
     setIsSending(true);
 
     try {
-      const res = await fetch("/api/chat", {
+      // ✅ Debug-Flag aus URL übernehmen (optional)
+      const debug =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("debug")
+          : null;
+
+      // ✅ DER FIX: slug immer über Query + Header + Body schicken
+      const apiUrl = `/api/chat?slug=${encodeURIComponent(slug)}${debug === "1" ? "&debug=1" : ""}`;
+
+      const res = await fetch(apiUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, message: q }),
+        headers: {
+          "Content-Type": "application/json",
+          "x-tenant-slug": slug, // ✅ extra robust (unabhängig von Referer/Referrer-Policy)
+        },
+        body: JSON.stringify({
+          slug, // ✅ Body weiterhin mitsenden
+          message: q,
+        }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+
+      // ✅ Wenn API einen Fehler liefert, zeigen wir ihn direkt (hilft Debugging)
+      if (!res.ok) {
+        const errMsg =
+          typeof data?.error === "string" && data.error.trim()
+            ? data.error
+            : "API Fehler: Anfrage fehlgeschlagen.";
+        setMessages((m) => [...m, { role: "assistant", text: errMsg }]);
+        return;
+      }
+
       const answer =
-        typeof data?.text === "string"
+        typeof data?.text === "string" && data.text.trim().length > 0
           ? data.text
           : "Entschuldigung, ich konnte gerade keine Antwort erzeugen.";
 
@@ -240,9 +281,7 @@ export default function Embed({ params }: EmbedProps) {
           <section className="w-[380px] max-w-[92vw] overflow-hidden rounded-[28px] bg-white/75 shadow-[0_24px_80px_rgba(0,0,0,0.28)] ring-1 ring-black/10 backdrop-blur-xl">
             {/* Header (Glass + Dark) */}
             <header className="relative overflow-hidden px-5 py-4">
-              {/* Dark glass background */}
               <div className="absolute inset-0 bg-gradient-to-b from-[#0b0b0c]/95 to-[#0b0b0c]/70" />
-              {/* subtle highlight */}
               <div className="absolute -top-24 left-10 h-48 w-48 rounded-full bg-gradient-to-tr from-indigo-400/18 via-violet-400/10 to-amber-300/8 blur-3xl" />
               <div className="relative flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-3">
@@ -285,7 +324,10 @@ export default function Embed({ params }: EmbedProps) {
                   const isUser = m.role === "user";
 
                   return (
-                    <div key={i} className={isUser ? "flex justify-end" : "flex justify-start gap-2"}>
+                    <div
+                      key={i}
+                      className={isUser ? "flex justify-end" : "flex justify-start gap-2"}
+                    >
                       {!isUser && (
                         <div className="mt-0.5 shrink-0">
                           <AssistantAvatar size={28} />
@@ -368,8 +410,6 @@ export default function Embed({ params }: EmbedProps) {
                       <span className="line-clamp-2 leading-snug">{a.label}</span>
                     </button>
                   ))}
-
-                  {/* Optional: in 2-col grid bleibt eine Karte übrig → wir lassen’s so, wirkt modern */}
                 </div>
               </div>
 

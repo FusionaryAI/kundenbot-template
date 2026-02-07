@@ -46,7 +46,6 @@ function cleanText(s: string) {
 function looksLikeBoilerplate(block: string) {
   const t = block.toLowerCase();
 
-  // Cookie/Consent/Tracking Noise
   const cookieHints = [
     "cookie",
     "consent",
@@ -63,17 +62,102 @@ function looksLikeBoilerplate(block: string) {
   ];
   const isCookie = cookieHints.some((k) => t.includes(k));
 
-  // Very short / menu-like fragments
   const tooShort = block.trim().length < 40;
-
-  // Mostly punctuation or repeated separators
   const junky = /^[\W_]+$/.test(block.trim());
 
   return tooShort || junky || isCookie;
 }
 
 /* =========================================================
-   HTML → Structured Text (better than body.textContent)
+   High-Value URL Logic (branchenneutral + praxis)
+========================================================= */
+const HIGH_VALUE_HINTS = [
+  // allgemein / branchenneutral
+  "/team",
+  "/about",
+  "/ueber-uns",
+  "/über-uns",
+  "/ansprechpartner",
+  "/kontakt",
+  "/contact",
+  "/impressum", // kann hilfreich sein (Name/Verantwortlicher)
+  "/unternehmen",
+  "/profil",
+  "/company",
+  "/karriere", // manchmal enthält Team/Ansprechpartner
+  "/services",
+  "/leistungen",
+
+  // praxis-spezifisch (optional, aber schadet nicht)
+  "/aerzte",
+  "/ärzte",
+  "/arzt",
+  "/praxis",
+  "/praxis-team",
+  "/sprechstunde",
+];
+
+function urlScore(u: string) {
+  const x = u.toLowerCase();
+  let score = 0;
+
+  // harte Priorität für High-Value
+  for (const h of HIGH_VALUE_HINTS) {
+    if (x.includes(h)) score += 50;
+  }
+
+  // leichte Priorität für "kurze" URLs (meist wichtige Seiten)
+  try {
+    const p = new URL(u).pathname || "/";
+    const depth = p.split("/").filter(Boolean).length;
+    score += Math.max(0, 10 - depth); // flachere Pfade => höherer Score
+  } catch {}
+
+  // leichte Abwertung für typische Listen/Archiv/Tag
+  const down = ["?page=", "/tag/", "/category/", "/wp-json", "/feed", "/search"];
+  if (down.some((d) => x.includes(d))) score -= 20;
+
+  return score;
+}
+
+function buildSeedUrls(startUrl: string, seedArg: string) {
+  const seeds: string[] = [];
+  try {
+    const base = new URL(startUrl);
+    const custom = (seedArg || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const defaults = [
+      "/team",
+      "/kontakt",
+      "/ansprechpartner",
+      "/ueber-uns",
+      "/about",
+      "/contact",
+      "/aerzte",
+      "/ärzte",
+      "/praxis-team",
+    ];
+
+    const paths = Array.from(new Set([...defaults, ...custom]));
+    for (const p of paths) {
+      // akzeptiere auch volle URLs im seedArg
+      if (/^https?:\/\//i.test(p)) {
+        seeds.push(p);
+      } else {
+        const u = new URL(p.startsWith("/") ? p : `/${p}`, base.origin);
+        seeds.push(u.toString());
+      }
+    }
+  } catch {}
+
+  return seeds;
+}
+
+/* =========================================================
+   HTML → Structured Text
 ========================================================= */
 async function extractStructuredTextFromUrl(url: string) {
   console.log(`▶️  Lade URL: ${url}`);
@@ -95,7 +179,8 @@ async function extractStructuredTextFromUrl(url: string) {
   const dom = new JSDOM(html, { url });
   const document = dom.window.document;
 
-  // Remove obvious boilerplate containers before Readability
+  // WICHTIG: NICHT mehr pauschal header/nav/footer entfernen (sonst gehen Namen verloren).
+  // Nur offensichtlichen Müll entfernen:
   const killSelectors = [
     "script",
     "style",
@@ -103,12 +188,7 @@ async function extractStructuredTextFromUrl(url: string) {
     "svg",
     "canvas",
     "iframe",
-    "header",
-    "footer",
-    "nav",
-    "aside",
     "[aria-hidden='true']",
-    "[role='navigation']",
     "[class*='cookie']",
     "[id*='cookie']",
     "[class*='consent']",
@@ -116,7 +196,6 @@ async function extractStructuredTextFromUrl(url: string) {
     "[class*='banner']",
     "[id*='banner']",
   ];
-
   for (const sel of killSelectors) {
     document.querySelectorAll(sel).forEach((el) => el.remove());
   }
@@ -125,33 +204,26 @@ async function extractStructuredTextFromUrl(url: string) {
   const reader = new Readability(document);
   const article = reader.parse();
 
-  // If Readability fails, fallback to main/body but with structure
   let contentHtml = article?.content?.trim() || "";
 
   if (!contentHtml) {
-    const main = document.querySelector("main");
+    const main = document.querySelector("main, article, [role='main']");
     contentHtml = (main ? main.innerHTML : document.body?.innerHTML) || "";
   }
 
   if (!contentHtml) return "";
 
-  // Parse the chosen content HTML again for structured extraction
   const dom2 = new JSDOM(contentHtml, { url });
   const doc2 = dom2.window.document;
 
-  // Build blocks: headings + paragraphs + list items
   const blocks: string[] = [];
-
-  const nodes = Array.from(
-    doc2.querySelectorAll("h1,h2,h3,h4,p,li")
-  ) as HTMLElement[];
+  const nodes = Array.from(doc2.querySelectorAll("h1,h2,h3,h4,p,li")) as HTMLElement[];
 
   for (const n of nodes) {
     const txt = cleanText(n.textContent || "");
     if (!txt) continue;
     if (looksLikeBoilerplate(txt)) continue;
 
-    // Keep headings visible (helps QA)
     const tag = n.tagName.toLowerCase();
     if (tag.startsWith("h")) {
       blocks.push(`\n### ${txt}\n`);
@@ -160,12 +232,11 @@ async function extractStructuredTextFromUrl(url: string) {
     }
   }
 
-  const combined = cleanText(blocks.join("\n"));
-  return combined;
+  return cleanText(blocks.join("\n"));
 }
 
 /* =========================================================
-   Paragraph-aware chunking (no mid-sentence slicing)
+   Paragraph-aware chunking
 ========================================================= */
 function chunkByParagraphs(text: string, maxChars = 900, overlapChars = 200) {
   const paras = text
@@ -177,9 +248,11 @@ function chunkByParagraphs(text: string, maxChars = 900, overlapChars = 200) {
   let current = "";
 
   for (const p of paras) {
-    // If a single paragraph is very long, hard-split it safely by sentences
     if (p.length > maxChars * 1.3) {
-      const sentences = p.split(/(?<=[\.\!\?])\s+/).map(cleanText).filter(Boolean);
+      const sentences = p
+        .split(/(?<=[\.\!\?])\s+/)
+        .map(cleanText)
+        .filter(Boolean);
       for (const s of sentences) {
         if (!s) continue;
         if ((current + " " + s).trim().length > maxChars) {
@@ -192,11 +265,9 @@ function chunkByParagraphs(text: string, maxChars = 900, overlapChars = 200) {
       continue;
     }
 
-    // Normal paragraph packing
     if ((current + "\n" + p).trim().length > maxChars) {
       if (current.trim()) chunks.push(current.trim());
 
-      // overlap: take last overlapChars of previous chunk into next chunk start
       if (overlapChars > 0 && chunks.length > 0) {
         const prev = chunks[chunks.length - 1];
         const overlap = prev.slice(Math.max(0, prev.length - overlapChars));
@@ -211,14 +282,11 @@ function chunkByParagraphs(text: string, maxChars = 900, overlapChars = 200) {
 
   if (current.trim()) chunks.push(current.trim());
 
-  // final cleanup
-  return chunks
-    .map((c) => cleanText(c))
-    .filter((c) => c.length >= 120); // drop tiny chunks
+  return chunks.map((c) => cleanText(c)).filter((c) => c.length >= 120);
 }
 
 /* =========================================================
-   Crawler
+   Crawler (Priority)
 ========================================================= */
 function normalizeUrl(url: string) {
   try {
@@ -249,12 +317,34 @@ function shouldSkipUrl(url: string, skipPatterns: string[]) {
   return skipPatterns.some((p) => u.includes(p));
 }
 
-async function crawlSite(startUrl: string, maxPages = 30, skipPatterns: string[] = []) {
+async function crawlSitePriority(
+  startUrl: string,
+  maxPages = 30,
+  skipPatterns: string[] = [],
+  seedUrls: string[] = []
+) {
   const start = new URL(startUrl);
-  const toVisit: string[] = [startUrl];
+
+  // Priority queue: sort by urlScore desc
+  const toVisit: string[] = [];
+
+  function enqueue(u: string) {
+    const n = normalizeUrl(u);
+    if (!n) return;
+    if (shouldSkipUrl(n, skipPatterns)) return;
+    toVisit.push(n);
+  }
+
+  // Start + seeds zuerst
+  enqueue(startUrl);
+  for (const s of seedUrls) enqueue(s);
+
   const visited = new Set<string>();
 
   while (toVisit.length > 0 && visited.size < maxPages) {
+    // höchste Priorität zuerst
+    toVisit.sort((a, b) => urlScore(b) - urlScore(a));
+
     const current = toVisit.shift()!;
     const normalized = normalizeUrl(current);
     if (!normalized || visited.has(normalized)) continue;
@@ -344,14 +434,14 @@ async function main() {
 
   if (!slug || !startUrl) {
     console.log(
-      "Usage: npx ts-node scripts/ingest.ts <slug> <start-url> [--fresh] [--maxPages 80] [--concurrency 2] [--skip privacy,datenschutz,impressum]"
+      "Usage: npx ts-node scripts/ingest.ts <slug> <start-url> [--fresh] [--maxPages 80] [--concurrency 2] [--skip privacy,datenschutz,impressum] [--seed /team,/kontakt,/aerzte]"
     );
     process.exit(1);
   }
 
   const fresh = hasFlag("--fresh");
-  const maxPages = parseInt(getArg("--maxPages") || "30", 10);
-  const concurrency = parseInt(getArg("--concurrency") || "1", 10);
+  const maxPages = parseInt(getArg("--maxPages") || "40", 10);
+  const concurrency = parseInt(getArg("--concurrency") || "2", 10);
 
   const skipArg = getArg("--skip") || "";
   const skipPatterns = skipArg
@@ -359,14 +449,16 @@ async function main() {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
+  const seedArg = getArg("--seed") || "";
+  const seedUrls = buildSeedUrls(startUrl, seedArg);
+
   console.log(`\n=== Ingest für Tenant "${slug}" ab Start-URL "${startUrl}" ===`);
   console.log(
     `Options: fresh=${fresh}, maxPages=${maxPages}, concurrency=${concurrency}, skip=[${skipPatterns.join(
       ", "
-    )}]\n`
+    )}], seeds=${seedUrls.length}\n`
   );
 
-  // Tenant holen
   const { data: tenant, error } = await supaAdmin
     .from("tenants")
     .select("*")
@@ -378,13 +470,9 @@ async function main() {
     process.exit(1);
   }
 
-  // Optional: Vor dem Ingest altes Wissen löschen
   if (fresh) {
     console.log("🧹 Lösche vorherige Embeddings & Knowledge Items...");
-    const { error: delE } = await supaAdmin
-      .from("embeddings")
-      .delete()
-      .eq("tenant_id", tenant.id);
+    const { error: delE } = await supaAdmin.from("embeddings").delete().eq("tenant_id", tenant.id);
     if (delE) throw delE;
 
     const { error: delK } = await supaAdmin
@@ -396,8 +484,8 @@ async function main() {
     console.log("✅ Vorherige Daten gelöscht.\n");
   }
 
-  // 1) Seiten crawlen
-  const urls = await crawlSite(startUrl, maxPages, skipPatterns);
+  // 1) Seiten crawlen (Priority + Seeds)
+  const urls = await crawlSitePriority(startUrl, maxPages, skipPatterns, seedUrls);
   if (urls.length === 0) {
     console.log("⚠️  Keine crawlbaren Seiten gefunden.");
     return;
