@@ -127,25 +127,6 @@ function messageFromMessages(body: any): string {
   return "";
 }
 
-// ✅ Handoff-Fix: letzte Assistant-Nachricht ermitteln (für Offer-Recovery)
-function lastAssistantFromMessages(body: any): string {
-  const arr = body?.messages;
-  if (!Array.isArray(arr) || arr.length === 0) return "";
-
-  for (let i = arr.length - 1; i >= 0; i--) {
-    const m = arr[i];
-    if (!m) continue;
-    if (m.role !== "assistant") continue;
-
-    const t =
-      (typeof m.content === "string" ? m.content : "") ||
-      (typeof m.text === "string" ? m.text : "");
-    if (t && t.trim().length > 0) return t.trim();
-  }
-
-  return "";
-}
-
 function isMedicalTenant(tenantName: string, context: PageContext | null) {
   const s = `${tenantName || ""} ${context?.tenant_label || ""}`.toLowerCase();
   return (
@@ -160,68 +141,8 @@ function isMedicalTenant(tenantName: string, context: PageContext | null) {
   );
 }
 
-// ✅ Fix (Behandler-Frage): Provider-/Team-/Ansprechpartner-Fragen sind KEINE medizinische Beratung
-function isProviderInfoQuestion(text: string) {
-  const t = (text || "").toLowerCase();
-
-  const providerWords = [
-    "arzt",
-    "ärzt",
-    "behandelnd",
-    "behandelnde",
-    "behandler",
-    "team",
-    "ansprechpartner",
-    "zuständig",
-    "wer behandelt",
-    "wer ist",
-    "name",
-  ];
-
-  const questionWords = ["wie heißt", "wer ist", "wer behandelt", "wer ist der", "wer ist die"];
-
-  const looksLikeNameAsk =
-    questionWords.some((q) => t.includes(q)) && providerWords.some((p) => t.includes(p));
-
-  // Wenn gleichzeitig Symptom-/Therapie-/Medikationssignale drin sind => nicht als reine Provider-Info werten
-  const symptomSignals = [
-    "ich habe",
-    "ich hab",
-    "symptom",
-    "schmerzen",
-    "fieber",
-    "husten",
-    "durchfall",
-    "übelkeit",
-    "schwindel",
-    "ausschlag",
-    "entzündung",
-    "atemnot",
-    "brustschmerz",
-    "diagnose",
-    "therapie",
-    "medikament",
-    "dosierung",
-    "dosis",
-    "antibiotika",
-    "ibuprofen",
-    "paracetamol",
-    "notfall",
-    "dringend",
-    "sofort",
-  ];
-
-  if (!looksLikeNameAsk) return false;
-  if (symptomSignals.some((k) => t.includes(k))) return false;
-
-  return true;
-}
-
 function looksLikeMedicalAdviceQuestion(text: string) {
   const t = (text || "").toLowerCase();
-
-  // ✅ Provider/Team-Fragen explizit erlauben
-  if (isProviderInfoQuestion(t)) return false;
 
   const isCapabilityQuestion =
     t.includes("was kannst du") ||
@@ -335,7 +256,6 @@ function appendSoftHandoffHint(text: string, leadEnabled: boolean, medicalTenant
     ? "\n\nWenn Sie möchten, kann ich auch eine **Terminanfrage / Rückrufbitte** aufnehmen und an das Team weiterleiten."
     : "\n\nWenn Sie möchten, kann ich Ihre Anfrage auch **ans Team weiterleiten**.";
 
-  // Duplizierung vermeiden
   const lower = (text || "").toLowerCase();
   if (lower.includes("weiterleiten") || lower.includes("rückruf") || lower.includes("terminanfrage")) {
     return text;
@@ -366,25 +286,6 @@ function buildCapabilityAnswer(params: { tenantName: string; medicalTenant: bool
     `- Wenn etwas unklar ist: Ihre Anfrage aufnehmen und ans Team weiterleiten\n\n` +
     `**Hinweis:** Ich ersetze keine fachliche Beratung (z. B. rechtlich/medizinisch/finanziell).`
   );
-}
-
-// ✅ Handoff-Fix: Offer-Text -> Offer erkannt, LeadType abgeleitet
-function inferOfferFromAssistantText(text: string): { is_offer: boolean; lead_type: LeadType } {
-  const t = (text || "").toLowerCase();
-  const isOffer =
-    (t.includes("möchten sie") || t.includes("moechten sie")) &&
-    (t.includes("weiterleite") ||
-      t.includes("weiterleiten") ||
-      t.includes("rückruf") ||
-      t.includes("rueckruf") ||
-      t.includes("terminanfrage"));
-
-  if (!isOffer) return { is_offer: false, lead_type: "contact" };
-
-  if (t.includes("termin") || t.includes("terminanfrage")) return { is_offer: true, lead_type: "appointment" };
-  if (t.includes("rückruf") || t.includes("rueckruf")) return { is_offer: true, lead_type: "callback" };
-
-  return { is_offer: true, lead_type: "contact" };
 }
 
 // --------------------
@@ -868,8 +769,8 @@ export async function POST(req: NextRequest) {
     const tenant = await getTenantBySlug(slug);
     const settings = await getTenantSettings(tenant.id);
 
-    // ✅ FIX (robust): enabled außer explizit false (ohne TS-Narrowing-Probleme)
-    const leadEnabled: boolean = settings.lead_enabled == null ? true : settings.lead_enabled === true;
+    // ✅ FIX: boolean normalisieren
+    const leadEnabled = settings.lead_enabled !== false;
 
     const medicalTenant = isMedicalTenant(tenant.name, handoff.page_context ?? context ?? null);
     const contactInfo = isContactInfoQuestion(message);
@@ -881,42 +782,6 @@ export async function POST(req: NextRequest) {
       : `- Du gibst keine rechtliche/medizinische/finanzielle Fachberatung.
 - Du kannst Informationen aus dem Unternehmenswissen wiedergeben und bei Bedarf an das Team weiterleiten.`;
 
-    // ✅ HANDOFF-FIX: Offer-Recovery, wenn Frontend keinen handoff-State zurücksendet
-    if ((!handoff.stage || handoff.stage === undefined) && !handoff.active && !handoff.completed) {
-      const lastAssistant = lastAssistantFromMessages(body);
-      const inferred = inferOfferFromAssistantText(lastAssistant);
-
-      if (inferred.is_offer) {
-        if (userSaysNo(message)) {
-          handoff = { active: false, completed: false };
-          return NextResponse.json({
-            text: "Alles klar. Wobei kann ich Ihnen sonst helfen?",
-            welcome_message: settings.welcome_message,
-            from_kb: false,
-            handoff,
-          });
-        }
-
-        if (userSaysYes(message)) {
-          handoff = {
-            active: true,
-            completed: false,
-            stage: "collect_name",
-            lead_type: inferred.lead_type,
-            offered_at_ts: Date.now(),
-            page_context: handoff.page_context ?? context ?? null,
-          };
-
-          return NextResponse.json({
-            text: "Super. Wie ist Ihr Name?",
-            welcome_message: settings.welcome_message,
-            from_kb: false,
-            handoff,
-          });
-        }
-      }
-    }
-
     // ✅ Capability-Fragen immer aus Template beantworten (kein KB!)
     if (isCapabilityQuestion(message)) {
       return NextResponse.json({
@@ -927,7 +792,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ✅ harte Blockade für medizinische Beratungsfragen (Provider-/Team-Fragen bleiben erlaubt)
+    // ✅ harte Blockade für medizinische Beratungsfragen
     if (medicalTenant && looksLikeMedicalAdviceQuestion(message)) {
       const now = Date.now();
       const offeredRecently =
@@ -966,6 +831,17 @@ export async function POST(req: NextRequest) {
       handoff = { active: false, completed: true };
     }
 
+    // ---------------------------------------------------------
+    // ✅ FIX #1: OFFER-RECENCY darf "JA" NICHT blocken
+    // - offeredRecently soll nur verhindern, dass wir erneut anbieten,
+    //   aber NICHT den Accept-Flow unterdrücken.
+    // ---------------------------------------------------------
+    const now = Date.now();
+    const offeredRecently =
+      handoff.stage === "offered"
+        ? false
+        : typeof handoff.offered_at_ts === "number" && now - handoff.offered_at_ts < 120_000;
+
     // --- Offer offen + Ja/Nein ---
     if (handoff.stage === "offered" && !handoff.active && !handoff.completed) {
       if (userSaysNo(message)) {
@@ -989,8 +865,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // --- 1) Handoff aktiv: stage-basiert sammeln ---
+    // ---------------------------------------------------------
+    // ✅ FIX #2 (HARD STOP):
+    // Wenn Handoff aktiv ist, darf KEIN RAG/KB/Fallback mehr laufen.
+    // (Verhindert genau den Bug aus deinem Screenshot.)
+    // ---------------------------------------------------------
     if (handoff.active && !handoff.completed) {
+      // --- 1) Handoff aktiv: stage-basiert sammeln ---
       if (userSaysNo(message)) {
         handoff = { active: false, completed: false };
         return NextResponse.json({
@@ -1130,6 +1011,7 @@ export async function POST(req: NextRequest) {
 
         const t = handoff.lead_type ?? "contact";
 
+        // Sonderfall: wenn message schon da und contact => direkt senden
         if (handoff.message && t === "contact") {
           if (!leadEnabled || !settings.lead_email) {
             handoff = { active: false, completed: false };
@@ -1198,19 +1080,19 @@ export async function POST(req: NextRequest) {
       // 1c) Anliegen sammeln
       if (handoff.stage === "collect_message") {
         const t = handoff.lead_type ?? "contact";
-        const raw = message.trim();
+        const raw2 = message.trim();
 
         if (handoff.message && t === "contact") {
-          const additional = raw.length >= 3 ? raw : null;
+          const additional = raw2.length >= 3 ? raw2 : null;
           if (additional && additional !== handoff.message) {
             handoff.message = `${handoff.message}\n\nZusatz: ${additional}`.trim();
           }
         } else {
           if (!handoff.message) {
-            if (raw.length >= 3) {
-              handoff.message = raw;
+            if (raw2.length >= 3) {
+              handoff.message = raw2;
             } else {
-              const llm = await extractWithLLM("collect_message", raw);
+              const llm = await extractWithLLM("collect_message", raw2);
               if (llm.message && llm.message.length >= 3) handoff.message = llm.message;
             }
 
@@ -1229,8 +1111,8 @@ export async function POST(req: NextRequest) {
               handoff.appointment_window = det.appointment_window;
             }
           } else {
-            if (raw.length >= 3) {
-              handoff.message = `${handoff.message}\n\nZusatz: ${raw}`.trim();
+            if (raw2.length >= 3) {
+              handoff.message = `${handoff.message}\n\nZusatz: ${raw2}`.trim();
             }
           }
         }
@@ -1284,10 +1166,6 @@ export async function POST(req: NextRequest) {
     }
 
     // --- 2) Offer: Rule-first ---
-    const now = Date.now();
-    const offeredRecently =
-      typeof handoff.offered_at_ts === "number" && now - handoff.offered_at_ts < 120_000;
-
     // ✅ Kontakt-Info Fragen: NICHT sofort Handoff anbieten -> erst RAG beantworten
     const bypassOffer = contactInfo;
 
@@ -1465,7 +1343,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ✅ MID_CONF => LLM-Gating (und bei Kontaktfragen danach Soft-Handoff-Hinweis)
+    // ✅ MID_CONF => LLM-Gating
     if (MID_CONF && leadEnabled && !handoff.completed && !offeredRecently) {
       const gate = await canAnswerFromKB({
         question: message,
@@ -1496,7 +1374,6 @@ export async function POST(req: NextRequest) {
       if (gate.answer && gate.answer.length > 0) {
         let out = gate.answer;
 
-        // ✅ bei Kontaktfragen: optionaler Handoff-Hinweis, aber nicht direkt starten
         if (contactInfo) {
           out = appendSoftHandoffHint(out, leadEnabled, medicalTenant);
         }
@@ -1555,7 +1432,6 @@ WICHTIG:
       }
     }
 
-    // ✅ bei Kontaktfragen: Soft-Handoff hinten dran (optional)
     if (contactInfo) {
       text = appendSoftHandoffHint(text, leadEnabled, medicalTenant);
     }
