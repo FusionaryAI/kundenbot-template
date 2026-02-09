@@ -772,6 +772,12 @@ export async function POST(req: NextRequest) {
     // ✅ FIX: boolean normalisieren
     const leadEnabled = settings.lead_enabled !== false;
 
+    // ✅ HARD STOP: wenn Lead/Handoff deaktiviert ist, killen wir jeden mitgesendeten Handoff-State.
+    // (Damit kann der Client keinen alten active/offered State "mitbringen".)
+    if (!leadEnabled) {
+      handoff = { active: false, completed: false };
+    }
+
     const medicalTenant = isMedicalTenant(tenant.name, handoff.page_context ?? context ?? null);
     const contactInfo = isContactInfoQuestion(message);
 
@@ -795,8 +801,12 @@ export async function POST(req: NextRequest) {
     // ✅ harte Blockade für medizinische Beratungsfragen
     if (medicalTenant && looksLikeMedicalAdviceQuestion(message)) {
       const now = Date.now();
+
+      // offeredRecently darf Accept-Flow nicht blocken
       const offeredRecently =
-        typeof handoff.offered_at_ts === "number" && now - handoff.offered_at_ts < 120_000;
+        handoff.stage === "offered"
+          ? false
+          : typeof handoff.offered_at_ts === "number" && now - handoff.offered_at_ts < 120_000;
 
       if (leadEnabled && !handoff.completed && !offeredRecently) {
         handoff = {
@@ -833,8 +843,6 @@ export async function POST(req: NextRequest) {
 
     // ---------------------------------------------------------
     // ✅ FIX #1: OFFER-RECENCY darf "JA" NICHT blocken
-    // - offeredRecently soll nur verhindern, dass wir erneut anbieten,
-    //   aber NICHT den Accept-Flow unterdrücken.
     // ---------------------------------------------------------
     const now = Date.now();
     const offeredRecently =
@@ -866,12 +874,9 @@ export async function POST(req: NextRequest) {
     }
 
     // ---------------------------------------------------------
-    // ✅ FIX #2 (HARD STOP):
-    // Wenn Handoff aktiv ist, darf KEIN RAG/KB/Fallback mehr laufen.
-    // (Verhindert genau den Bug aus deinem Screenshot.)
+    // ✅ FIX #2: wenn Handoff aktiv ist -> KEIN RAG/KB/Fallback
     // ---------------------------------------------------------
     if (handoff.active && !handoff.completed) {
-      // --- 1) Handoff aktiv: stage-basiert sammeln ---
       if (userSaysNo(message)) {
         handoff = { active: false, completed: false };
         return NextResponse.json({
@@ -1011,7 +1016,6 @@ export async function POST(req: NextRequest) {
 
         const t = handoff.lead_type ?? "contact";
 
-        // Sonderfall: wenn message schon da und contact => direkt senden
         if (handoff.message && t === "contact") {
           if (!leadEnabled || !settings.lead_email) {
             handoff = { active: false, completed: false };
@@ -1166,7 +1170,6 @@ export async function POST(req: NextRequest) {
     }
 
     // --- 2) Offer: Rule-first ---
-    // ✅ Kontakt-Info Fragen: NICHT sofort Handoff anbieten -> erst RAG beantworten
     const bypassOffer = contactInfo;
 
     const ruleLeadType = detectLeadIntentRuleFirst(message);
