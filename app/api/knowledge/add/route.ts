@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Knowledge Item in Datenbank speichern
+    // 1. Knowledge Item speichern
     const { data: item, error: itemError } = await supaAdmin
       .from("knowledge_items")
       .insert({
@@ -30,12 +30,12 @@ export async function POST(req: NextRequest) {
 
     if (itemError || !item) {
       return NextResponse.json(
-        { ok: false, error: "Fehler beim Speichern" },
+        { ok: false, error: itemError?.message ?? "Fehler beim Speichern" },
         { status: 500 }
       );
     }
 
-    // 2. Embedding generieren und speichern
+    // 2. Embedding generieren
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
     const embeddingResponse = await openai.embeddings.create({
@@ -45,18 +45,21 @@ export async function POST(req: NextRequest) {
 
     const embedding = embeddingResponse.data[0].embedding;
 
+    // 3. Embedding speichern – ohne metadata Spalte
     const { error: embError } = await supaAdmin
       .from("embeddings")
       .insert({
         tenant_id,
         content,
         embedding,
-        metadata: { knowledge_item_id: item.id, source: "dashboard" },
       });
 
     if (embError) {
-      console.error("Embedding error:", embError);
-      // Knowledge Item trotzdem behalten, Embedding-Fehler nur loggen
+      console.error("Embedding insert error:", embError);
+      return NextResponse.json(
+        { ok: false, error: "Embedding konnte nicht gespeichert werden: " + embError.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ ok: true, id: item.id });
