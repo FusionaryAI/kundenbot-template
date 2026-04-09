@@ -39,6 +39,10 @@ export default function TenantDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [createUserMsg, setCreateUserMsg] = useState("");
 
   // Editierbare Felder
   const [welcomeMsg, setWelcomeMsg] = useState("");
@@ -63,7 +67,6 @@ export default function TenantDetailPage() {
         return;
       }
 
-      // Tenant laden
       const { data: tenantData } = await supabase
         .from("tenants")
         .select("id, name, slug")
@@ -73,7 +76,6 @@ export default function TenantDetailPage() {
       if (!tenantData) { router.push("/admin"); return; }
       setTenant(tenantData);
 
-      // Settings laden
       const { data: settingsData } = await supabase
         .from("tenant_settings")
         .select("welcome_message, fallback_message, lead_enabled, lead_email, lead_auto_reply")
@@ -89,7 +91,6 @@ export default function TenantDetailPage() {
         setLeadAutoReply(settingsData.lead_auto_reply ?? "");
       }
 
-      // Leads laden
       const { data: leadsData } = await supabase
         .from("leads")
         .select("id, name, email, phone, message, type, created_at")
@@ -165,12 +166,20 @@ export default function TenantDetailPage() {
           <span className="text-zinc-600">|</span>
           <span className="text-white font-medium">{tenant?.name}</span>
         </div>
-        <button
-          onClick={async () => { await supabase.auth.signOut(); router.push("/login"); }}
-          className="text-zinc-400 text-sm hover:text-white transition"
-        >
-          Abmelden
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="text-zinc-400 text-sm hover:text-white transition"
+          >
+            Dashboard
+          </button>
+          <button
+            onClick={async () => { await supabase.auth.signOut(); router.push("/login"); }}
+            className="text-zinc-400 text-sm hover:text-white transition"
+          >
+            Abmelden
+          </button>
+        </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-6 py-8 flex flex-col gap-10">
@@ -279,6 +288,81 @@ export default function TenantDetailPage() {
               ))}
             </div>
           )}
+        </section>
+
+        {/* Kunden-Zugang anlegen */}
+        <section>
+          <h2 className="text-base font-medium mb-4">Kunden-Zugang anlegen</h2>
+          <div className="bg-zinc-900 border border-white/10 rounded-xl p-6 flex flex-col gap-4">
+            <p className="text-zinc-400 text-sm">
+              Erstelle einen Login für deinen Kunden. Er kann sich damit einloggen
+              und seine Leads & Einstellungen einsehen.
+            </p>
+
+            <div>
+              <label className="text-zinc-400 text-xs mb-1 block">E-Mail des Kunden</label>
+              <input
+                value={newUserEmail}
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                placeholder="kunde@beispiel.de"
+                className="w-full bg-zinc-800 text-white rounded-lg px-4 py-2 text-sm border border-white/10 focus:outline-none focus:border-white/30"
+              />
+            </div>
+
+            <div>
+              <label className="text-zinc-400 text-xs mb-1 block">Passwort</label>
+              <input
+                type="password"
+                value={newUserPassword}
+                onChange={(e) => setNewUserPassword(e.target.value)}
+                placeholder="Mindestens 8 Zeichen"
+                className="w-full bg-zinc-800 text-white rounded-lg px-4 py-2 text-sm border border-white/10 focus:outline-none focus:border-white/30"
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={async () => {
+                  if (!tenant || !newUserEmail || !newUserPassword) return;
+                  setCreatingUser(true);
+                  setCreateUserMsg("");
+
+                  const res = await fetch("/api/create-client-user", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      email: newUserEmail,
+                      password: newUserPassword,
+                      tenant_id: tenant.id,
+                    }),
+                  });
+
+                  const data = await res.json();
+                  setCreatingUser(false);
+
+                  if (data.ok) {
+                    setCreateUserMsg(`Zugang für ${data.email} erfolgreich angelegt!`);
+                    setNewUserEmail("");
+                    setNewUserPassword("");
+                  } else {
+                    setCreateUserMsg(`Fehler: ${data.error}`);
+                  }
+
+                  setTimeout(() => setCreateUserMsg(""), 5000);
+                }}
+                disabled={creatingUser || !newUserEmail || !newUserPassword}
+                className="bg-white text-black font-medium rounded-lg px-5 py-2 text-sm hover:bg-zinc-200 transition disabled:opacity-50"
+              >
+                {creatingUser ? "Wird angelegt..." : "Zugang anlegen"}
+              </button>
+
+              {createUserMsg && (
+                <span className={`text-sm ${createUserMsg.includes("Fehler") ? "text-red-400" : "text-green-400"}`}>
+                  {createUserMsg}
+                </span>
+              )}
+            </div>
+          </div>
         </section>
 
       </div>
