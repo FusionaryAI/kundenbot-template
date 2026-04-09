@@ -2,6 +2,7 @@
 import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
 import * as dotenv from "dotenv";
+import { readFile } from "node:fs/promises";
 dotenv.config({ path: ".env.local" });
 
 import { supaAdmin } from "../lib/db.ts";
@@ -80,15 +81,15 @@ const HIGH_VALUE_HINTS = [
   "/ansprechpartner",
   "/kontakt",
   "/contact",
-  "/impressum", // kann hilfreich sein (Name/Verantwortlicher)
+  "/impressum",
   "/unternehmen",
   "/profil",
   "/company",
-  "/karriere", // manchmal enthält Team/Ansprechpartner
+  "/karriere",
   "/services",
   "/leistungen",
 
-  // praxis-spezifisch (optional, aber schadet nicht)
+  // praxis-spezifisch
   "/aerzte",
   "/ärzte",
   "/arzt",
@@ -101,19 +102,16 @@ function urlScore(u: string) {
   const x = u.toLowerCase();
   let score = 0;
 
-  // harte Priorität für High-Value
   for (const h of HIGH_VALUE_HINTS) {
     if (x.includes(h)) score += 50;
   }
 
-  // leichte Priorität für "kurze" URLs (meist wichtige Seiten)
   try {
     const p = new URL(u).pathname || "/";
     const depth = p.split("/").filter(Boolean).length;
-    score += Math.max(0, 10 - depth); // flachere Pfade => höherer Score
+    score += Math.max(0, 10 - depth);
   } catch {}
 
-  // leichte Abwertung für typische Listen/Archiv/Tag
   const down = ["?page=", "/tag/", "/category/", "/wp-json", "/feed", "/search"];
   if (down.some((d) => x.includes(d))) score -= 20;
 
@@ -143,7 +141,6 @@ function buildSeedUrls(startUrl: string, seedArg: string) {
 
     const paths = Array.from(new Set([...defaults, ...custom]));
     for (const p of paths) {
-      // akzeptiere auch volle URLs im seedArg
       if (/^https?:\/\//i.test(p)) {
         seeds.push(p);
       } else {
@@ -179,8 +176,6 @@ async function extractStructuredTextFromUrl(url: string) {
   const dom = new JSDOM(html, { url });
   const document = dom.window.document;
 
-  // WICHTIG: NICHT mehr pauschal header/nav/footer entfernen (sonst gehen Namen verloren).
-  // Nur offensichtlichen Müll entfernen:
   const killSelectors = [
     "script",
     "style",
@@ -200,7 +195,6 @@ async function extractStructuredTextFromUrl(url: string) {
     document.querySelectorAll(sel).forEach((el) => el.remove());
   }
 
-  // Try Readability first
   const reader = new Readability(document);
   const article = reader.parse();
 
@@ -233,6 +227,20 @@ async function extractStructuredTextFromUrl(url: string) {
   }
 
   return cleanText(blocks.join("\n"));
+}
+
+/* =========================================================
+   Plain Text / File Helpers
+========================================================= */
+async function extractStructuredTextFromFile(filePath: string) {
+  console.log(`▶️  Lade Datei: ${filePath}`);
+
+  const raw = await readFile(filePath, "utf8");
+  const text = cleanText(raw);
+
+  if (!text) return "";
+
+  return text;
 }
 
 /* =========================================================
@@ -324,8 +332,6 @@ async function crawlSitePriority(
   seedUrls: string[] = []
 ) {
   const start = new URL(startUrl);
-
-  // Priority queue: sort by urlScore desc
   const toVisit: string[] = [];
 
   function enqueue(u: string) {
@@ -335,14 +341,12 @@ async function crawlSitePriority(
     toVisit.push(n);
   }
 
-  // Start + seeds zuerst
   enqueue(startUrl);
   for (const s of seedUrls) enqueue(s);
 
   const visited = new Set<string>();
 
   while (toVisit.length > 0 && visited.size < maxPages) {
-    // höchste Priorität zuerst
     toVisit.sort((a, b) => urlScore(b) - urlScore(a));
 
     const current = toVisit.shift()!;
@@ -426,15 +430,50 @@ async function runWithConcurrency<T>(
 }
 
 /* =========================================================
+   Shared ingest writer
+========================================================= */
+async function saveChunksForTenant(tenantId: string, source: string, raw: string) {
+  if (!raw || raw.length < 200) {
+    console.log("⚠️  Sehr wenig Inhalt, skip:", source);
+    return;
+  }
+
+  const chunks = chunkByParagraphs(raw, 900, 200);
+  console.log(`✂️  ${chunks.length} Chunks aus ${source}`);
+
+  for (const c of chunks) {
+    const { error: e1 } = await supaAdmin.from("knowledge_items").insert({
+      tenant_id: tenantId,
+      source,
+      content: c,
+    });
+    if (e1) throw e1;
+
+    const vec = await embed(c);
+    const { error: e2 } = await supaAdmin.from("embeddings").insert({
+      tenant_id: tenantId,
+      content: c,
+      embedding: vec,
+    });
+    if (e2) throw e2;
+  }
+
+  console.log(`✅ Quelle verarbeitet: ${source}`);
+}
+
+/* =========================================================
    Main
 ========================================================= */
 async function main() {
   const slug = process.argv[2];
   const startUrl = process.argv[3];
+  const filePath = getArg("--file");
 
-  if (!slug || !startUrl) {
+  if (!slug || (!startUrl && !filePath)) {
     console.log(
-      "Usage: npx ts-node scripts/ingest.ts <slug> <start-url> [--fresh] [--maxPages 80] [--concurrency 2] [--skip privacy,datenschutz,impressum] [--seed /team,/kontakt,/aerzte]"
+      "Usage:\n" +
+        "  URL-Modus:  npx ts-node scripts/ingest.ts <slug> <start-url> [--fresh] [--maxPages 80] [--concurrency 2] [--skip privacy,datenschutz,impressum] [--seed /team,/kontakt,/aerzte]\n" +
+        "  Datei-Modus: npx ts-node scripts/ingest.ts <slug> dummy [--file ./demo-content.txt] [--fresh]"
     );
     process.exit(1);
   }
@@ -449,14 +488,21 @@ async function main() {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
+  const isFileMode = !!filePath;
   const seedArg = getArg("--seed") || "";
-  const seedUrls = buildSeedUrls(startUrl, seedArg);
+  const seedUrls = !isFileMode && startUrl ? buildSeedUrls(startUrl, seedArg) : [];
 
-  console.log(`\n=== Ingest für Tenant "${slug}" ab Start-URL "${startUrl}" ===`);
+  console.log(
+    `\n=== Ingest für Tenant "${slug}" ${
+      isFileMode
+        ? `aus Datei "${filePath}"`
+        : `ab Start-URL "${startUrl}"`
+    } ===`
+  );
   console.log(
     `Options: fresh=${fresh}, maxPages=${maxPages}, concurrency=${concurrency}, skip=[${skipPatterns.join(
       ", "
-    )}], seeds=${seedUrls.length}\n`
+    )}], seeds=${seedUrls.length}, fileMode=${isFileMode}\n`
   );
 
   const { data: tenant, error } = await supaAdmin
@@ -484,42 +530,23 @@ async function main() {
     console.log("✅ Vorherige Daten gelöscht.\n");
   }
 
-  // 1) Seiten crawlen (Priority + Seeds)
+  if (isFileMode) {
+    const raw = await extractStructuredTextFromFile(filePath);
+    await saveChunksForTenant(tenant.id, `file:${filePath}`, raw);
+
+    console.log("\n🎉 Datei-Ingest abgeschlossen.\n");
+    return;
+  }
+
   const urls = await crawlSitePriority(startUrl, maxPages, skipPatterns, seedUrls);
   if (urls.length === 0) {
     console.log("⚠️  Keine crawlbaren Seiten gefunden.");
     return;
   }
 
-  // 2) Für jede Seite Text extrahieren & speichern
   await runWithConcurrency(urls, concurrency, async (url) => {
     const raw = await extractStructuredTextFromUrl(url);
-    if (!raw || raw.length < 200) {
-      console.log("⚠️  Sehr wenig Inhalt, skip:", url);
-      return;
-    }
-
-    const chunks = chunkByParagraphs(raw, 900, 200);
-    console.log(`✂️  ${chunks.length} Chunks aus ${url}`);
-
-    for (const c of chunks) {
-      const { error: e1 } = await supaAdmin.from("knowledge_items").insert({
-        tenant_id: tenant.id,
-        source: url,
-        content: c,
-      });
-      if (e1) throw e1;
-
-      const vec = await embed(c);
-      const { error: e2 } = await supaAdmin.from("embeddings").insert({
-        tenant_id: tenant.id,
-        content: c,
-        embedding: vec,
-      });
-      if (e2) throw e2;
-    }
-
-    console.log(`✅ Seite verarbeitet: ${url}`);
+    await saveChunksForTenant(tenant.id, url, raw);
   });
 
   console.log("\n🎉 Ingest abgeschlossen.\n");
