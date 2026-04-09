@@ -44,7 +44,6 @@ export default function TenantDetailPage() {
   const [creatingUser, setCreatingUser] = useState(false);
   const [createUserMsg, setCreateUserMsg] = useState("");
 
-  // Editierbare Felder
   const [welcomeMsg, setWelcomeMsg] = useState("");
   const [fallbackMsg, setFallbackMsg] = useState("");
   const [leadEmail, setLeadEmail] = useState("");
@@ -167,6 +166,12 @@ export default function TenantDetailPage() {
           <span className="text-white font-medium">{tenant?.name}</span>
         </div>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => router.push(`/admin/${slug}/knowledge`)}
+            className="text-zinc-400 text-sm hover:text-white transition"
+          >
+            Wissensbasis
+          </button>
           <button
             onClick={() => router.push("/dashboard")}
             className="text-zinc-400 text-sm hover:text-white transition"
