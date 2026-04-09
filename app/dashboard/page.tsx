@@ -135,12 +135,22 @@ export default function DashboardPage() {
             </span>
           )}
         </div>
-        <button
-          onClick={handleLogout}
-          className="text-zinc-400 text-sm hover:text-white transition"
-        >
-          Abmelden
-        </button>
+        <div className="flex items-center gap-4">
+          {role === "super_admin" && (
+            <button
+              onClick={() => router.push("/admin")}
+              className="text-zinc-400 text-sm hover:text-white transition"
+            >
+              Admin
+            </button>
+          )}
+          <button
+            onClick={handleLogout}
+            className="text-zinc-400 text-sm hover:text-white transition"
+          >
+            Abmelden
+          </button>
+        </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-6 py-8">
