@@ -11,11 +11,6 @@ type Tenant = {
   created_at: string;
 };
 
-type LeadCount = {
-  tenant_id: string;
-  count: number;
-};
-
 export default function AdminPage() {
   const router = useRouter();
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -45,7 +40,6 @@ export default function AdminPage() {
 
       setTenants(tenantsData ?? []);
 
-      // Lead-Anzahl pro Tenant laden
       if (tenantsData && tenantsData.length > 0) {
         const counts: Record<string, number> = {};
         await Promise.all(
@@ -116,10 +110,16 @@ export default function AdminPage() {
               {tenants.length} {tenants.length === 1 ? "Kunde" : "Kunden"} aktiv
             </p>
           </div>
+          <button
+            onClick={() => router.push("/admin/new")}
+            className="bg-white text-black font-medium rounded-lg px-4 py-2 text-sm hover:bg-zinc-200 transition"
+          >
+            + Neuen Kunden anlegen
+          </button>
         </div>
 
         {tenants.length === 0 ? (
-          <p className="text-zinc-500 text-sm">Noch keine Tenants vorhanden.</p>
+          <p className="text-zinc-500 text-sm">Noch keine Kunden vorhanden.</p>
         ) : (
           <div className="flex flex-col gap-3">
             {tenants.map((tenant) => (
