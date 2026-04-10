@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import Sidebar from "@/components/Sidebar";
 
 type Tenant = {
   id: string;
@@ -65,89 +66,160 @@ export default function AdminPage() {
     });
   }
 
+  function greeting() {
+    const h = new Date().getHours();
+    if (h < 12) return "Guten Morgen";
+    if (h < 18) return "Guten Tag";
+    return "Guten Abend";
+  }
+
   if (loading) {
     return (
-      <main className="min-h-screen bg-black flex items-center justify-center">
-        <p className="text-zinc-400 text-sm">Wird geladen...</p>
-      </main>
+      <div style={{ display: "flex", minHeight: "100vh", background: "#0a0a0a", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "14px" }}>Wird geladen...</p>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-black text-white">
-      {/* Header */}
-      <div className="border-b border-white/10 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-white font-semibold">Fusionary AI</span>
-          <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full">
-            Super Admin
-          </span>
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="text-zinc-400 text-sm hover:text-white transition"
-          >
-            Dashboard
-          </button>
-          <button
-            onClick={async () => {
-              await supabase.auth.signOut();
-              router.push("/login");
-            }}
-            className="text-zinc-400 text-sm hover:text-white transition"
-          >
-            Abmelden
-          </button>
-        </div>
-      </div>
+    <div style={{ display: "flex", minHeight: "100vh", background: "#f5f5f3" }}>
+      <Sidebar role="super_admin" tenantName="Fusionary AI" />
 
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+
+        {/* Topbar */}
+        <div style={{
+          background: "#fff",
+          borderBottom: "0.5px solid rgba(0,0,0,0.08)",
+          padding: "18px 28px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}>
           <div>
-            <h1 className="text-xl font-semibold">Alle Kunden</h1>
-            <p className="text-zinc-400 text-sm mt-1">
-              {tenants.length} {tenants.length === 1 ? "Kunde" : "Kunden"} aktiv
+            <p style={{ fontSize: "18px", fontWeight: 500, color: "#111" }}>
+              {greeting()}, Admin 👋
+            </p>
+            <p style={{ fontSize: "12px", color: "#888", marginTop: "3px" }}>
+              Hier ist deine Kundenübersicht.
             </p>
           </div>
           <button
             onClick={() => router.push("/admin/new")}
-            className="bg-white text-black font-medium rounded-lg px-4 py-2 text-sm hover:bg-zinc-200 transition"
+            style={{
+              fontSize: "13px",
+              padding: "8px 16px",
+              borderRadius: "8px",
+              border: "none",
+              background: "#111",
+              color: "#fff",
+              fontWeight: 500,
+              cursor: "pointer",
+            }}
           >
             + Neuen Kunden anlegen
           </button>
         </div>
 
-        {tenants.length === 0 ? (
-          <p className="text-zinc-500 text-sm">Noch keine Kunden vorhanden.</p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {tenants.map((tenant) => (
-              <div
-                key={tenant.id}
-                onClick={() => router.push(`/admin/${tenant.slug}`)}
-                className="bg-zinc-900 border border-white/10 rounded-xl p-5 flex items-center justify-between cursor-pointer hover:border-white/20 transition"
-              >
-                <div>
-                  <p className="text-white font-medium">{tenant.name}</p>
-                  <p className="text-zinc-500 text-xs mt-1">
-                    Slug: {tenant.slug} · Seit {formatDate(tenant.created_at)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <p className="text-white font-medium text-sm">
-                      {leadCounts[tenant.id] ?? 0}
-                    </p>
-                    <p className="text-zinc-500 text-xs">Leads</p>
-                  </div>
-                  <span className="text-zinc-600">→</span>
-                </div>
+        <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "24px" }}>
+
+          {/* Statistik */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: "12px" }}>
+            {[
+              { label: "Kunden gesamt", value: tenants.length, sub: "aktiv" },
+              { label: "Leads gesamt", value: Object.values(leadCounts).reduce((a, b) => a + b, 0), sub: "alle Kunden" },
+              { label: "Ø Leads pro Kunde", value: tenants.length > 0 ? Math.round(Object.values(leadCounts).reduce((a, b) => a + b, 0) / tenants.length) : 0, sub: "Durchschnitt" },
+            ].map((stat) => (
+              <div key={stat.label} style={{
+                background: "#fff",
+                border: "0.5px solid rgba(0,0,0,0.08)",
+                borderRadius: "12px",
+                padding: "16px 20px",
+              }}>
+                <p style={{ fontSize: "12px", color: "#888", marginBottom: "6px" }}>{stat.label}</p>
+                <p style={{ fontSize: "24px", fontWeight: 500, color: "#111" }}>{stat.value}</p>
+                <p style={{ fontSize: "11px", color: "#aaa", marginTop: "2px" }}>{stat.sub}</p>
               </div>
             ))}
           </div>
-        )}
+
+          {/* Kundenliste */}
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+              <p style={{ fontSize: "13px", fontWeight: 500, color: "#111" }}>Alle Kunden</p>
+              <span style={{ fontSize: "12px", color: "#888" }}>
+                {tenants.length} {tenants.length === 1 ? "Kunde" : "Kunden"}
+              </span>
+            </div>
+
+            {tenants.length === 0 ? (
+              <div style={{
+                background: "#fff",
+                border: "0.5px solid rgba(0,0,0,0.08)",
+                borderRadius: "12px",
+                padding: "32px",
+                textAlign: "center",
+              }}>
+                <p style={{ fontSize: "13px", color: "#aaa" }}>Noch keine Kunden vorhanden.</p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {tenants.map((tenant) => (
+                  <div
+                    key={tenant.id}
+                    onClick={() => router.push(`/admin/${tenant.slug}`)}
+                    style={{
+                      background: "#fff",
+                      border: "0.5px solid rgba(0,0,0,0.08)",
+                      borderRadius: "12px",
+                      padding: "14px 18px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      cursor: "pointer",
+                      transition: "border-color 0.15s",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                      <div style={{
+                        width: "36px",
+                        height: "36px",
+                        borderRadius: "8px",
+                        background: "#EEEDFE",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        color: "#534AB7",
+                        flexShrink: 0,
+                      }}>
+                        {tenant.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <p style={{ fontSize: "13px", fontWeight: 500, color: "#111" }}>{tenant.name}</p>
+                        <p style={{ fontSize: "11px", color: "#aaa", marginTop: "1px" }}>
+                          {tenant.slug} · Seit {formatDate(tenant.created_at)}
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                      <div style={{ textAlign: "right" }}>
+                        <p style={{ fontSize: "14px", fontWeight: 500, color: "#111" }}>
+                          {leadCounts[tenant.id] ?? 0}
+                        </p>
+                        <p style={{ fontSize: "11px", color: "#aaa" }}>Leads</p>
+                      </div>
+                      <span style={{ color: "#ccc", fontSize: "16px" }}>→</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </div>
       </div>
-    </main>
+    </div>
   );
 }

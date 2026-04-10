@@ -11,20 +11,14 @@ type Props = {
 function FusionaryLogo() {
   return (
     <svg width="28" height="28" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="35" r="22" stroke="white" strokeWidth="5" fill="none"/>
+      <circle cx="50" cy="65" r="22" stroke="white" strokeWidth="5" fill="none"/>
       <path
-        d="M50 20 C30 20, 15 32, 15 50 C15 68, 30 80, 50 80 C70 80, 85 68, 85 50 C85 32, 70 20, 50 20Z"
-        stroke="white" strokeWidth="5" fill="none"
-      />
-      <path
-        d="M20 50 C20 38, 32 28, 50 28 C68 28, 80 38, 80 50"
+        d="M28 50 C28 50, 38 38, 50 50 C62 62, 72 50, 72 50"
         stroke="white" strokeWidth="5" fill="none" strokeLinecap="round"
       />
       <path
-        d="M80 50 C80 62, 68 72, 50 72 C32 72, 20 62, 20 50"
-        stroke="white" strokeWidth="5" fill="none" strokeLinecap="round"
-      />
-      <path
-        d="M15 50 C15 50, 30 35, 50 50 C70 65, 85 50, 85 50"
+        d="M28 50 C28 50, 38 62, 50 50 C62 38, 72 50, 72 50"
         stroke="white" strokeWidth="5" fill="none" strokeLinecap="round"
       />
     </svg>
@@ -82,6 +76,17 @@ const adminItems = [
           </svg>
         ),
       },
+      {
+        label: "Neuen Kunden",
+        href: "/admin/new",
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="7" cy="6" r="3"/>
+            <path d="M1 14c0-3 2.5-5 6-5"/>
+            <path d="M12 10v4M10 12h4"/>
+          </svg>
+        ),
+      },
     ],
   },
 ];
@@ -136,7 +141,8 @@ export default function Sidebar({ role, tenantName }: Props) {
             {group.section}
           </p>
           {group.items.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = pathname === item.href ||
+              (item.href !== "/dashboard" && pathname?.startsWith(item.href));
             return (
               <button
                 key={item.href}

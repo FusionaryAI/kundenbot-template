@@ -95,6 +95,13 @@ export default function DashboardPage() {
     return { bg: "#F1EFE8", color: "#5F5E5A" };
   }
 
+  function greeting() {
+    const h = new Date().getHours();
+    if (h < 12) return "Guten Morgen";
+    if (h < 18) return "Guten Tag";
+    return "Guten Abend";
+  }
+
   const appointmentCount = leads.filter(l => l.type === "appointment").length;
 
   if (loading) {
@@ -110,18 +117,23 @@ export default function DashboardPage() {
       <Sidebar role={role} tenantName={tenant?.name} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+
         {/* Topbar */}
         <div style={{
           background: "#fff",
           borderBottom: "0.5px solid rgba(0,0,0,0.08)",
-          padding: "14px 28px",
+          padding: "18px 28px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
         }}>
           <div>
-            <p style={{ fontSize: "15px", fontWeight: 500, color: "#111" }}>Übersicht</p>
-            {tenant && <p style={{ fontSize: "12px", color: "#888", marginTop: "1px" }}>{tenant.name}</p>}
+            <p style={{ fontSize: "18px", fontWeight: 500, color: "#111" }}>
+              {greeting()}{tenant ? `, ${tenant.name}` : ""} 👋
+            </p>
+            <p style={{ fontSize: "12px", color: "#888", marginTop: "3px" }}>
+              Hier ist deine aktuelle Übersicht.
+            </p>
           </div>
           <div style={{
             fontSize: "11px",
