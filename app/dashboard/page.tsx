@@ -36,7 +36,6 @@ export default function DashboardPage() {
         return;
       }
 
-      // Rolle laden
       const { data: roleData } = await supabase
         .from("user_roles")
         .select("role, tenant_id")
@@ -50,10 +49,8 @@ export default function DashboardPage() {
 
       setRole(roleData.role);
 
-      // Tenant laden
       let tenantId = roleData.tenant_id;
 
-      // Super Admin sieht ersten Tenant als Übersicht
       if (roleData.role === "super_admin") {
         const { data: firstTenant } = await supabase
           .from("tenants")
@@ -73,7 +70,6 @@ export default function DashboardPage() {
         if (tenantData) setTenant(tenantData);
       }
 
-      // Leads laden
       if (tenantId) {
         const { data: leadsData } = await supabase
           .from("leads")
@@ -136,6 +132,12 @@ export default function DashboardPage() {
           )}
         </div>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => router.push("/dashboard/knowledge")}
+            className="text-zinc-400 text-sm hover:text-white transition"
+          >
+            Wissensbasis
+          </button>
           {role === "super_admin" && (
             <button
               onClick={() => router.push("/admin")}
