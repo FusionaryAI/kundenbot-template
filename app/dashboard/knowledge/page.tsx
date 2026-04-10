@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import Sidebar from "@/components/Sidebar";
 
 type KnowledgeItem = {
   id: string;
@@ -23,8 +24,8 @@ export default function CustomerKnowledgePage() {
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-
   const [newTitle, setNewTitle] = useState("");
   const [newContent, setNewContent] = useState("");
   const [adding, setAdding] = useState(false);
@@ -42,25 +43,17 @@ export default function CustomerKnowledgePage() {
         .single();
 
       if (!roleData) { router.push("/login"); return; }
+      setRole(roleData.role);
 
       let tenantId = roleData.tenant_id;
 
       if (roleData.role === "super_admin") {
         const { data: firstTenant } = await supabase
-          .from("tenants")
-          .select("*")
-          .limit(1)
-          .single();
-        if (firstTenant) {
-          setTenant(firstTenant);
-          tenantId = firstTenant.id;
-        }
+          .from("tenants").select("*").limit(1).single();
+        if (firstTenant) { setTenant(firstTenant); tenantId = firstTenant.id; }
       } else {
         const { data: tenantData } = await supabase
-          .from("tenants")
-          .select("*")
-          .eq("id", tenantId)
-          .single();
+          .from("tenants").select("*").eq("id", tenantId).single();
         if (tenantData) setTenant(tenantData);
       }
 
@@ -109,7 +102,6 @@ export default function CustomerKnowledgePage() {
     } else {
       setAddMsg(`Fehler: ${data.error}`);
     }
-
     setTimeout(() => setAddMsg(""), 4000);
   }
 
@@ -141,116 +133,203 @@ export default function CustomerKnowledgePage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-black flex items-center justify-center">
-        <p className="text-zinc-400 text-sm">Wird geladen...</p>
-      </main>
+      <div style={{ display: "flex", minHeight: "100vh", background: "#0a0a0a", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "14px" }}>Wird geladen...</p>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-black text-white">
-      <div className="border-b border-white/10 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="text-zinc-400 text-sm hover:text-white transition"
-          >
-            ← Dashboard
-          </button>
-          <span className="text-zinc-600">|</span>
-          <span className="text-white font-medium">Wissensbasis</span>
+    <div style={{ display: "flex", minHeight: "100vh", background: "#f5f5f3" }}>
+      <Sidebar role={role} tenantName={tenant?.name} />
+
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {/* Topbar */}
+        <div style={{
+          background: "#fff",
+          borderBottom: "0.5px solid rgba(0,0,0,0.08)",
+          padding: "14px 28px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}>
+          <div>
+            <p style={{ fontSize: "15px", fontWeight: 500, color: "#111" }}>Wissensbasis</p>
+            {tenant && <p style={{ fontSize: "12px", color: "#888", marginTop: "1px" }}>{tenant.name}</p>}
+          </div>
+          <span style={{ fontSize: "12px", color: "#888" }}>{items.length} Einträge</span>
         </div>
-        <button
-          onClick={async () => { await supabase.auth.signOut(); router.push("/login"); }}
-          className="text-zinc-400 text-sm hover:text-white transition"
-        >
-          Abmelden
-        </button>
-      </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-8 flex flex-col gap-10">
+        <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "24px" }}>
 
-        <section>
-          <h2 className="text-base font-medium mb-4">Neuen Eintrag hinzufügen</h2>
-          <div className="bg-zinc-900 border border-white/10 rounded-xl p-6 flex flex-col gap-4">
-            <p className="text-zinc-400 text-sm">
-              Füge Texte, FAQs oder Informationen hinzu die dein Bot kennen soll.
+          {/* Neuen Eintrag */}
+          <div style={{
+            background: "#fff",
+            border: "0.5px solid rgba(0,0,0,0.08)",
+            borderRadius: "12px",
+            padding: "20px 24px",
+          }}>
+            <p style={{ fontSize: "13px", fontWeight: 500, color: "#111", marginBottom: "4px" }}>
+              Neuen Eintrag hinzufügen
             </p>
-            <div>
-              <label className="text-zinc-400 text-xs mb-1 block">Titel (optional)</label>
-              <input
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="z.B. Öffnungszeiten, Leistungen..."
-                className="w-full bg-zinc-800 text-white rounded-lg px-4 py-2 text-sm border border-white/10 focus:outline-none focus:border-white/30"
-              />
-            </div>
-            <div>
-              <label className="text-zinc-400 text-xs mb-1 block">
-                Inhalt <span className="text-red-400">*</span>
-              </label>
-              <textarea
-                value={newContent}
-                onChange={(e) => setNewContent(e.target.value)}
-                placeholder="Schreibe hier den Text den der Bot lernen soll..."
-                rows={5}
-                className="w-full bg-zinc-800 text-white rounded-lg px-4 py-2 text-sm border border-white/10 focus:outline-none focus:border-white/30 resize-none"
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleAdd}
-                disabled={adding || !newContent.trim()}
-                className="bg-white text-black font-medium rounded-lg px-5 py-2 text-sm hover:bg-zinc-200 transition disabled:opacity-50"
-              >
-                {adding ? "Wird hinzugefügt..." : "Hinzufügen"}
-              </button>
-              {addMsg && (
-                <span className={`text-sm ${addMsg.includes("Fehler") ? "text-red-400" : "text-green-400"}`}>
-                  {addMsg}
-                </span>
-              )}
+            <p style={{ fontSize: "12px", color: "#888", marginBottom: "16px" }}>
+              Füge Texte oder FAQs hinzu die dein Bot kennen soll.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div>
+                <label style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "4px" }}>
+                  Titel (optional)
+                </label>
+                <input
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="z.B. Öffnungszeiten, Leistungen..."
+                  style={{
+                    width: "100%",
+                    background: "#f5f5f3",
+                    color: "#111",
+                    borderRadius: "8px",
+                    padding: "8px 12px",
+                    fontSize: "13px",
+                    border: "0.5px solid rgba(0,0,0,0.12)",
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "4px" }}>
+                  Inhalt <span style={{ color: "#E24B4A" }}>*</span>
+                </label>
+                <textarea
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  placeholder="Schreibe hier den Text den der Bot lernen soll..."
+                  rows={4}
+                  style={{
+                    width: "100%",
+                    background: "#f5f5f3",
+                    color: "#111",
+                    borderRadius: "8px",
+                    padding: "8px 12px",
+                    fontSize: "13px",
+                    border: "0.5px solid rgba(0,0,0,0.12)",
+                    outline: "none",
+                    resize: "none",
+                    boxSizing: "border-box",
+                    fontFamily: "inherit",
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <button
+                  onClick={handleAdd}
+                  disabled={adding || !newContent.trim()}
+                  style={{
+                    background: "#111",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "8px 18px",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    opacity: adding || !newContent.trim() ? 0.5 : 1,
+                  }}
+                >
+                  {adding ? "Wird hinzugefügt..." : "Hinzufügen"}
+                </button>
+                {addMsg && (
+                  <span style={{
+                    fontSize: "12px",
+                    color: addMsg.includes("Fehler") ? "#E24B4A" : "#3B6D11",
+                  }}>
+                    {addMsg}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-        </section>
 
-        <section>
-          <h2 className="text-base font-medium mb-4">
-            Bestehende Einträge
-            <span className="ml-2 text-zinc-500 text-sm font-normal">({items.length})</span>
-          </h2>
-          {items.length === 0 ? (
-            <p className="text-zinc-500 text-sm">Noch keine Einträge vorhanden.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {items.map((item) => (
-                <div key={item.id} className="bg-zinc-900 border border-white/10 rounded-xl p-4">
-                  <div className="flex items-start justify-between gap-4 mb-2">
-                    <div>
+          {/* Bestehende Einträge */}
+          <div>
+            <p style={{ fontSize: "13px", fontWeight: 500, color: "#111", marginBottom: "12px" }}>
+              Bestehende Einträge
+              <span style={{ fontSize: "12px", fontWeight: 400, color: "#888", marginLeft: "8px" }}>
+                ({items.length})
+              </span>
+            </p>
+
+            {items.length === 0 ? (
+              <div style={{
+                background: "#fff",
+                border: "0.5px solid rgba(0,0,0,0.08)",
+                borderRadius: "12px",
+                padding: "32px",
+                textAlign: "center",
+              }}>
+                <p style={{ fontSize: "13px", color: "#aaa" }}>Noch keine Einträge vorhanden.</p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {items.map((item) => (
+                  <div key={item.id} style={{
+                    background: "#fff",
+                    border: "0.5px solid rgba(0,0,0,0.08)",
+                    borderRadius: "12px",
+                    padding: "14px 18px",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       {item.title && (
-                        <p className="text-white font-medium text-sm mb-1">{item.title}</p>
+                        <p style={{ fontSize: "13px", fontWeight: 500, color: "#111", marginBottom: "3px" }}>
+                          {item.title}
+                        </p>
                       )}
-                      <p className="text-zinc-300 text-sm line-clamp-3">{item.content}</p>
+                      <p style={{
+                        fontSize: "12px",
+                        color: "#666",
+                        overflow: "hidden",
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                      }}>
+                        {item.content}
+                      </p>
+                      <div style={{ display: "flex", gap: "12px", marginTop: "6px" }}>
+                        <span style={{ fontSize: "11px", color: "#aaa" }}>{formatDate(item.created_at)}</span>
+                        {item.source && <span style={{ fontSize: "11px", color: "#aaa" }}>{item.source}</span>}
+                      </div>
                     </div>
                     <button
                       onClick={() => handleDelete(item.id)}
                       disabled={deleting === item.id}
-                      className="text-zinc-600 hover:text-red-400 transition text-xs shrink-0 disabled:opacity-50"
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: "12px",
+                        color: "#bbb",
+                        padding: "2px 4px",
+                        flexShrink: 0,
+                      }}
                     >
                       {deleting === item.id ? "..." : "Löschen"}
                     </button>
                   </div>
-                  <div className="flex gap-4 text-xs text-zinc-600 mt-2">
-                    <span>{formatDate(item.created_at)}</span>
-                    {item.source && <span>{item.source}</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+                ))}
+              </div>
+            )}
+          </div>
 
+        </div>
       </div>
-    </main>
+    </div>
   );
 }

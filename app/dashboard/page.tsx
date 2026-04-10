@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import Sidebar from "@/components/Sidebar";
 
 type Lead = {
   id: string;
@@ -26,15 +27,12 @@ export default function DashboardPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
+  const [kbCount, setKbCount] = useState(0);
 
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        router.push("/login");
-        return;
-      }
+      if (!user) { router.push("/login"); return; }
 
       const { data: roleData } = await supabase
         .from("user_roles")
@@ -42,31 +40,18 @@ export default function DashboardPage() {
         .eq("user_id", user.id)
         .single();
 
-      if (!roleData) {
-        router.push("/login");
-        return;
-      }
-
+      if (!roleData) { router.push("/login"); return; }
       setRole(roleData.role);
 
       let tenantId = roleData.tenant_id;
 
       if (roleData.role === "super_admin") {
         const { data: firstTenant } = await supabase
-          .from("tenants")
-          .select("*")
-          .limit(1)
-          .single();
-        if (firstTenant) {
-          setTenant(firstTenant);
-          tenantId = firstTenant.id;
-        }
+          .from("tenants").select("*").limit(1).single();
+        if (firstTenant) { setTenant(firstTenant); tenantId = firstTenant.id; }
       } else {
         const { data: tenantData } = await supabase
-          .from("tenants")
-          .select("*")
-          .eq("id", tenantId)
-          .single();
+          .from("tenants").select("*").eq("id", tenantId).single();
         if (tenantData) setTenant(tenantData);
       }
 
@@ -77,20 +62,19 @@ export default function DashboardPage() {
           .eq("tenant_id", tenantId)
           .order("created_at", { ascending: false })
           .limit(20);
-
         setLeads(leadsData ?? []);
+
+        const { count } = await supabase
+          .from("knowledge_items")
+          .select("*", { count: "exact", head: true })
+          .eq("tenant_id", tenantId);
+        setKbCount(count ?? 0);
       }
 
       setLoading(false);
     }
-
     load();
   }, [router]);
-
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    router.push("/login");
-  }
 
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString("de-DE", {
@@ -106,106 +90,192 @@ export default function DashboardPage() {
   }
 
   function leadTypColor(t: string) {
-    if (t === "appointment") return "bg-blue-500/20 text-blue-300";
-    if (t === "callback") return "bg-amber-500/20 text-amber-300";
-    return "bg-zinc-500/20 text-zinc-300";
+    if (t === "appointment") return { bg: "#E6F1FB", color: "#185FA5" };
+    if (t === "callback") return { bg: "#FAEEDA", color: "#854F0B" };
+    return { bg: "#F1EFE8", color: "#5F5E5A" };
   }
+
+  const appointmentCount = leads.filter(l => l.type === "appointment").length;
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-black flex items-center justify-center">
-        <p className="text-zinc-400 text-sm">Wird geladen...</p>
-      </main>
+      <div style={{ display: "flex", minHeight: "100vh", background: "#0a0a0a", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "14px" }}>Wird geladen...</p>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-black text-white">
-      {/* Header */}
-      <div className="border-b border-white/10 px-6 py-4 flex items-center justify-between">
-        <div>
-          <span className="text-white font-semibold">Fusionary AI</span>
-          {role === "super_admin" && (
-            <span className="ml-2 text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full">
-              Super Admin
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => router.push("/dashboard/knowledge")}
-            className="text-zinc-400 text-sm hover:text-white transition"
-          >
-            Wissensbasis
-          </button>
-          {role === "super_admin" && (
-            <button
-              onClick={() => router.push("/admin")}
-              className="text-zinc-400 text-sm hover:text-white transition"
-            >
-              Admin
-            </button>
-          )}
-          <button
-            onClick={handleLogout}
-            className="text-zinc-400 text-sm hover:text-white transition"
-          >
-            Abmelden
-          </button>
-        </div>
-      </div>
+    <div style={{ display: "flex", minHeight: "100vh", background: "#f5f5f3" }}>
+      <Sidebar role={role} tenantName={tenant?.name} />
 
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        {/* Tenant Info */}
-        {tenant && (
-          <div className="mb-8">
-            <h1 className="text-xl font-semibold">{tenant.name}</h1>
-            <p className="text-zinc-400 text-sm mt-1">Slug: {tenant.slug}</p>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {/* Topbar */}
+        <div style={{
+          background: "#fff",
+          borderBottom: "0.5px solid rgba(0,0,0,0.08)",
+          padding: "14px 28px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}>
+          <div>
+            <p style={{ fontSize: "15px", fontWeight: 500, color: "#111" }}>Übersicht</p>
+            {tenant && <p style={{ fontSize: "12px", color: "#888", marginTop: "1px" }}>{tenant.name}</p>}
           </div>
-        )}
+          <div style={{
+            fontSize: "11px",
+            padding: "4px 10px",
+            borderRadius: "20px",
+            background: "#EAF3DE",
+            color: "#3B6D11",
+            fontWeight: 500,
+          }}>
+            Bot aktiv
+          </div>
+        </div>
 
-        {/* Leads */}
-        <div>
-          <h2 className="text-base font-medium mb-4">
-            Letzte Leads
-            <span className="ml-2 text-zinc-500 text-sm font-normal">
-              ({leads.length})
-            </span>
-          </h2>
+        <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "24px" }}>
 
-          {leads.length === 0 ? (
-            <p className="text-zinc-500 text-sm">Noch keine Leads vorhanden.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {leads.map((lead) => (
-                <div
-                  key={lead.id}
-                  className="bg-zinc-900 border border-white/10 rounded-xl p-4"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-white font-medium text-sm">
-                        {lead.name ?? "Kein Name"}
-                      </span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${leadTypColor(lead.type)}`}>
-                        {leadTypLabel(lead.type)}
+          {/* Statistik-Karten */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: "12px" }}>
+            {[
+              { label: "Leads gesamt", value: leads.length, sub: "diesen Monat" },
+              { label: "Terminanfragen", value: appointmentCount, sub: "offen" },
+              { label: "Wissensbasis", value: kbCount, sub: "Einträge" },
+            ].map((stat) => (
+              <div key={stat.label} style={{
+                background: "#fff",
+                border: "0.5px solid rgba(0,0,0,0.08)",
+                borderRadius: "12px",
+                padding: "16px 20px",
+              }}>
+                <p style={{ fontSize: "12px", color: "#888", marginBottom: "6px" }}>{stat.label}</p>
+                <p style={{ fontSize: "24px", fontWeight: 500, color: "#111" }}>{stat.value}</p>
+                <p style={{ fontSize: "11px", color: "#aaa", marginTop: "2px" }}>{stat.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Leads */}
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+              <p style={{ fontSize: "13px", fontWeight: 500, color: "#111" }}>Letzte Leads</p>
+              <span style={{ fontSize: "12px", color: "#888" }}>{leads.length} gesamt</span>
+            </div>
+
+            {leads.length === 0 ? (
+              <div style={{
+                background: "#fff",
+                border: "0.5px solid rgba(0,0,0,0.08)",
+                borderRadius: "12px",
+                padding: "32px",
+                textAlign: "center",
+              }}>
+                <p style={{ fontSize: "13px", color: "#aaa" }}>Noch keine Leads vorhanden.</p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {leads.map((lead) => {
+                  const tagStyle = leadTypColor(lead.type);
+                  return (
+                    <div key={lead.id} style={{
+                      background: "#fff",
+                      border: "0.5px solid rgba(0,0,0,0.08)",
+                      borderRadius: "12px",
+                      padding: "14px 18px",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                          <span style={{ fontSize: "13px", fontWeight: 500, color: "#111" }}>
+                            {lead.name ?? "Kein Name"}
+                          </span>
+                          <span style={{
+                            fontSize: "11px",
+                            padding: "2px 8px",
+                            borderRadius: "20px",
+                            background: tagStyle.bg,
+                            color: tagStyle.color,
+                            fontWeight: 500,
+                          }}>
+                            {leadTypLabel(lead.type)}
+                          </span>
+                        </div>
+                        <p style={{
+                          fontSize: "12px",
+                          color: "#666",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          maxWidth: "400px",
+                        }}>
+                          {lead.message}
+                        </p>
+                        <div style={{ display: "flex", gap: "12px", marginTop: "4px" }}>
+                          {lead.email && <span style={{ fontSize: "11px", color: "#aaa" }}>✉ {lead.email}</span>}
+                          {lead.phone && <span style={{ fontSize: "11px", color: "#aaa" }}>✆ {lead.phone}</span>}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: "11px", color: "#aaa", flexShrink: 0 }}>
+                        {formatDate(lead.created_at)}
                       </span>
                     </div>
-                    <span className="text-zinc-500 text-xs">
-                      {formatDate(lead.created_at)}
-                    </span>
-                  </div>
-                  <p className="text-zinc-300 text-sm mb-2 line-clamp-2">{lead.message}</p>
-                  <div className="flex gap-4 text-xs text-zinc-500">
-                    {lead.email && <span>✉ {lead.email}</span>}
-                    {lead.phone && <span>✆ {lead.phone}</span>}
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Bot Status */}
+          {tenant && (
+            <div>
+              <p style={{ fontSize: "13px", fontWeight: 500, color: "#111", marginBottom: "12px" }}>Bot-Status</p>
+              <div style={{
+                background: "#fff",
+                border: "0.5px solid rgba(0,0,0,0.08)",
+                borderRadius: "12px",
+                padding: "16px 18px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div style={{
+                    width: "8px", height: "8px",
+                    borderRadius: "50%",
+                    background: "#639922",
+                  }} />
+                  <div>
+                    <p style={{ fontSize: "13px", fontWeight: 500, color: "#111" }}>{tenant.name}</p>
+                    <p style={{ fontSize: "11px", color: "#aaa", marginTop: "1px" }}>
+                      Slug: {tenant.slug}
+                    </p>
                   </div>
                 </div>
-              ))}
+                <button
+                  onClick={() => router.push("/dashboard/knowledge")}
+                  style={{
+                    fontSize: "12px",
+                    padding: "5px 12px",
+                    borderRadius: "8px",
+                    border: "0.5px solid rgba(0,0,0,0.15)",
+                    background: "transparent",
+                    color: "#444",
+                    cursor: "pointer",
+                  }}
+                >
+                  Wissensbasis →
+                </button>
+              </div>
             </div>
           )}
+
         </div>
       </div>
-    </main>
+    </div>
   );
 }
