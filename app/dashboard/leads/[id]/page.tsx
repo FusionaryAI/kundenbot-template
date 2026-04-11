@@ -89,26 +89,28 @@ export default function LeadDetailPage() {
     setSaving(true);
     setSaveMsg("");
 
-    const updatedMetadata = {
-      ...(lead.metadata ?? {}),
-      notes,
-    };
-
-    const { error } = await supabase
-      .from("leads")
-      .update({
+    const res = await fetch("/api/leads/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: lead.id,
         status,
-        metadata: updatedMetadata,
-      })
-      .eq("id", lead.id);
+        notes,
+      }),
+    });
 
+    const data = await res.json();
     setSaving(false);
 
-    if (error) {
-      setSaveMsg("Fehler beim Speichern.");
-    } else {
+    if (data.ok) {
       setSaveMsg("Gespeichert!");
-      setLead({ ...lead, status, metadata: updatedMetadata });
+      setLead({
+        ...lead,
+        status,
+        metadata: { ...(lead.metadata ?? {}), notes },
+      });
+    } else {
+      setSaveMsg("Fehler beim Speichern.");
     }
     setTimeout(() => setSaveMsg(""), 3000);
   }
@@ -177,7 +179,6 @@ export default function LeadDetailPage() {
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 
-        {/* Topbar */}
         <div style={{
           background: "#fff",
           borderBottom: "1px solid #efefed",
@@ -208,25 +209,20 @@ export default function LeadDetailPage() {
               {lead.name ?? "Kein Name"}
             </p>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{
-              fontSize: "11px", padding: "4px 12px",
-              borderRadius: "20px", fontWeight: 500,
-              background: tagStyle.bg, color: tagStyle.color,
-              border: `1px solid ${tagStyle.color}22`,
-            }}>
-              {leadTypLabel(lead.type)}
-            </span>
-          </div>
+          <span style={{
+            fontSize: "11px", padding: "4px 12px",
+            borderRadius: "20px", fontWeight: 500,
+            background: tagStyle.bg, color: tagStyle.color,
+            border: `1px solid ${tagStyle.color}22`,
+          }}>
+            {leadTypLabel(lead.type)}
+          </span>
         </div>
 
         <div style={{ padding: "24px 28px", maxWidth: "720px", display: "flex", flexDirection: "column", gap: "16px" }}>
 
-          {/* Kontaktdaten */}
           <div style={{ ...sectionStyle, ...revealStyle(0.05) }}>
-            <p style={{ fontSize: "12px", fontWeight: 600, color: "#333", marginBottom: "16px" }}>
-              Kontaktdaten
-            </p>
+            <p style={{ fontSize: "12px", fontWeight: 600, color: "#333", marginBottom: "16px" }}>Kontaktdaten</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               {[
                 { label: "Name", value: lead.name ?? "–" },
@@ -237,9 +233,7 @@ export default function LeadDetailPage() {
                 { label: "Lead-Typ", value: leadTypLabel(lead.type) },
               ].map((field) => (
                 <div key={field.label}>
-                  <p style={{ fontSize: "10.5px", color: "#bbb", marginBottom: "3px", fontWeight: 500 }}>
-                    {field.label}
-                  </p>
+                  <p style={{ fontSize: "10.5px", color: "#bbb", marginBottom: "3px", fontWeight: 500 }}>{field.label}</p>
                   <p style={{ fontSize: "13px", color: "#111" }}>{field.value}</p>
                 </div>
               ))}
@@ -247,9 +241,7 @@ export default function LeadDetailPage() {
 
             {lead.type === "appointment" && (lead.appointment_topic || lead.appointment_window) && (
               <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #f5f5f5" }}>
-                <p style={{ fontSize: "12px", fontWeight: 600, color: "#333", marginBottom: "12px" }}>
-                  Termindetails
-                </p>
+                <p style={{ fontSize: "12px", fontWeight: 600, color: "#333", marginBottom: "12px" }}>Termindetails</p>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                   {lead.appointment_topic && (
                     <div>
@@ -268,34 +260,22 @@ export default function LeadDetailPage() {
             )}
           </div>
 
-          {/* Nachricht */}
           <div style={{ ...sectionStyle, ...revealStyle(0.1) }}>
-            <p style={{ fontSize: "12px", fontWeight: 600, color: "#333", marginBottom: "12px" }}>
-              Nachricht
-            </p>
+            <p style={{ fontSize: "12px", fontWeight: 600, color: "#333", marginBottom: "12px" }}>Nachricht</p>
             <p style={{
-              fontSize: "13px", color: "#444",
-              lineHeight: 1.7,
-              background: "#fafafa",
-              padding: "14px 16px",
-              borderRadius: "8px",
-              border: "1px solid #f0f0f0",
+              fontSize: "13px", color: "#444", lineHeight: 1.7,
+              background: "#fafafa", padding: "14px 16px",
+              borderRadius: "8px", border: "1px solid #f0f0f0",
             }}>
               {lead.message}
             </p>
           </div>
 
-          {/* Status & Notizen */}
           <div style={{ ...sectionStyle, ...revealStyle(0.15) }}>
-            <p style={{ fontSize: "12px", fontWeight: 600, color: "#333", marginBottom: "16px" }}>
-              Status & Notizen
-            </p>
-
+            <p style={{ fontSize: "12px", fontWeight: 600, color: "#333", marginBottom: "16px" }}>Status & Notizen</p>
             <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
               <div>
-                <p style={{ fontSize: "10.5px", color: "#bbb", marginBottom: "6px", fontWeight: 500 }}>
-                  Status
-                </p>
+                <p style={{ fontSize: "10.5px", color: "#bbb", marginBottom: "6px", fontWeight: 500 }}>Status</p>
                 <div style={{ display: "flex", gap: "8px" }}>
                   {[
                     { key: "neu", label: "Neu", bg: "#eeeeff", color: "#5b53d8" },
@@ -310,9 +290,7 @@ export default function LeadDetailPage() {
                         borderRadius: "20px",
                         fontSize: "12px",
                         fontWeight: status === s.key ? 600 : 400,
-                        border: status === s.key
-                          ? `1.5px solid ${s.color}`
-                          : "1px solid #efefed",
+                        border: status === s.key ? `1.5px solid ${s.color}` : "1px solid #efefed",
                         background: status === s.key ? s.bg : "#fff",
                         color: status === s.key ? s.color : "#bbb",
                         cursor: "pointer",
@@ -326,9 +304,7 @@ export default function LeadDetailPage() {
               </div>
 
               <div>
-                <p style={{ fontSize: "10.5px", color: "#bbb", marginBottom: "6px", fontWeight: 500 }}>
-                  Interne Notizen
-                </p>
+                <p style={{ fontSize: "10.5px", color: "#bbb", marginBottom: "6px", fontWeight: 500 }}>Interne Notizen</p>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
@@ -345,16 +321,10 @@ export default function LeadDetailPage() {
                   onClick={handleSave}
                   disabled={saving}
                   style={{
-                    background: "#111",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "8px",
-                    padding: "9px 18px",
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    cursor: "pointer",
-                    opacity: saving ? 0.6 : 1,
-                    transition: "all 0.15s",
+                    background: "#111", color: "#fff", border: "none",
+                    borderRadius: "8px", padding: "9px 18px", fontSize: "13px",
+                    fontWeight: 500, cursor: "pointer",
+                    opacity: saving ? 0.6 : 1, transition: "all 0.15s",
                   }}
                   onMouseEnter={(e) => { if (!saving) e.currentTarget.style.background = "#333"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "#111"; }}
@@ -362,10 +332,7 @@ export default function LeadDetailPage() {
                   {saving ? "Wird gespeichert..." : "Speichern"}
                 </button>
                 {saveMsg && (
-                  <span style={{
-                    fontSize: "12px",
-                    color: saveMsg.includes("Fehler") ? "#e05" : "#3a6b10",
-                  }}>
+                  <span style={{ fontSize: "12px", color: saveMsg.includes("Fehler") ? "#e05" : "#3a6b10" }}>
                     {saveMsg}
                   </span>
                 )}
