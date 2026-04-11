@@ -10,8 +10,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // Passwort vergessen
   const [showReset, setShowReset] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
   const [resetMsg, setResetMsg] = useState("");
@@ -43,7 +41,6 @@ export default function LoginPage() {
     });
 
     setResetLoading(false);
-
     if (error) {
       setResetMsg("Fehler beim Senden. Bitte E-Mail prüfen.");
     } else {
@@ -51,93 +48,219 @@ export default function LoginPage() {
     }
   }
 
-  return (
-    <main className="min-h-screen flex items-center justify-center bg-black">
-      <div className="w-full max-w-sm bg-zinc-900 rounded-xl p-8 border border-white/10">
-        <h1 className="text-white text-2xl font-semibold mb-2">Fusionary AI</h1>
+  const inputStyle = {
+    width: "100%",
+    background: "#fafafa",
+    color: "#111",
+    borderRadius: "8px",
+    padding: "10px 14px",
+    fontSize: "13.5px",
+    border: "1px solid #efefed",
+    outline: "none",
+    boxSizing: "border-box" as const,
+    transition: "border-color 0.15s",
+    fontFamily: "inherit",
+  };
 
-        {!showReset ? (
-          <>
-            <p className="text-zinc-400 text-sm mb-6">Melde dich an um fortzufahren.</p>
-            <form onSubmit={handleLogin} className="flex flex-col gap-4">
+  return (
+    <main style={{
+      minHeight: "100vh",
+      background: "#f7f7f5",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "20px",
+    }}>
+      <div style={{ width: "100%", maxWidth: "400px" }}>
+
+        {/* Header */}
+        <div style={{ textAlign: "center", marginBottom: "32px" }}>
+          <p style={{
+            fontFamily: "var(--font-playfair), Georgia, serif",
+            fontSize: "32px",
+            fontWeight: 400,
+            color: "#0a0a0a",
+            letterSpacing: "-0.5px",
+            lineHeight: 1.2,
+            marginBottom: "8px",
+          }}>
+            Fusionary{" "}
+            <span style={{ fontStyle: "italic", color: "#2d5a1b" }}>AI</span>
+          </p>
+          <p style={{ fontSize: "13px", color: "#bbb" }}>
+            {showReset ? "Passwort zurücksetzen" : "Kundenportal · Anmelden"}
+          </p>
+        </div>
+
+        {/* Card */}
+        <div style={{
+          background: "#fff",
+          border: "1px solid #efefed",
+          borderRadius: "14px",
+          padding: "28px",
+        }}>
+          {!showReset ? (
+            <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
               <div>
-                <label className="text-zinc-400 text-xs mb-1 block">E-Mail</label>
+                <label style={{ fontSize: "11px", color: "#999", display: "block", marginBottom: "5px", fontWeight: 500 }}>
+                  E-Mail
+                </label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full bg-zinc-800 text-white rounded-lg px-4 py-2 text-sm border border-white/10 focus:outline-none focus:border-white/30"
                   placeholder="deine@email.de"
+                  style={inputStyle}
+                  onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
+                  onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
                 />
               </div>
               <div>
-                <label className="text-zinc-400 text-xs mb-1 block">Passwort</label>
+                <label style={{ fontSize: "11px", color: "#999", display: "block", marginBottom: "5px", fontWeight: 500 }}>
+                  Passwort
+                </label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="w-full bg-zinc-800 text-white rounded-lg px-4 py-2 text-sm border border-white/10 focus:outline-none focus:border-white/30"
                   placeholder="••••••••"
+                  style={inputStyle}
+                  onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
+                  onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
                 />
               </div>
-              {error && <p className="text-red-400 text-xs">{error}</p>}
+
+              {error && (
+                <p style={{ fontSize: "12px", color: "#e05", background: "#fff5f5", padding: "8px 12px", borderRadius: "6px", border: "1px solid #ffd0d0" }}>
+                  {error}
+                </p>
+              )}
+
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-white text-black font-medium rounded-lg py-2 text-sm hover:bg-zinc-200 transition disabled:opacity-50"
+                style={{
+                  width: "100%",
+                  background: "#111",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "11px",
+                  fontSize: "13.5px",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  opacity: loading ? 0.6 : 1,
+                  transition: "all 0.15s",
+                  marginTop: "4px",
+                }}
+                onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = "#333"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "#111"; }}
               >
                 {loading ? "Wird angemeldet..." : "Anmelden"}
               </button>
+
               <button
                 type="button"
                 onClick={() => setShowReset(true)}
-                className="text-zinc-500 text-xs hover:text-zinc-300 transition text-center"
+                style={{
+                  background: "none",
+                  border: "none",
+                  fontSize: "12px",
+                  color: "#bbb",
+                  cursor: "pointer",
+                  textAlign: "center",
+                  padding: "4px",
+                  transition: "color 0.15s",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = "#666"}
+                onMouseLeave={(e) => e.currentTarget.style.color = "#bbb"}
               >
                 Passwort vergessen?
               </button>
             </form>
-          </>
-        ) : (
-          <>
-            <p className="text-zinc-400 text-sm mb-6">
-              Gib deine E-Mail ein – wir senden dir einen Link zum Zurücksetzen.
-            </p>
-            <form onSubmit={handleReset} className="flex flex-col gap-4">
+          ) : (
+            <form onSubmit={handleReset} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <p style={{ fontSize: "12.5px", color: "#888", lineHeight: 1.6 }}>
+                Gib deine E-Mail ein – wir senden dir einen Link zum Zurücksetzen.
+              </p>
               <div>
-                <label className="text-zinc-400 text-xs mb-1 block">E-Mail</label>
+                <label style={{ fontSize: "11px", color: "#999", display: "block", marginBottom: "5px", fontWeight: 500 }}>
+                  E-Mail
+                </label>
                 <input
                   type="email"
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
                   required
-                  className="w-full bg-zinc-800 text-white rounded-lg px-4 py-2 text-sm border border-white/10 focus:outline-none focus:border-white/30"
                   placeholder="deine@email.de"
+                  style={inputStyle}
+                  onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
+                  onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
                 />
               </div>
+
               {resetMsg && (
-                <p className={`text-xs ${resetMsg.includes("Fehler") ? "text-red-400" : "text-green-400"}`}>
+                <p style={{
+                  fontSize: "12px",
+                  color: resetMsg.includes("Fehler") ? "#e05" : "#3a6b10",
+                  background: resetMsg.includes("Fehler") ? "#fff5f5" : "#f0f7e8",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: `1px solid ${resetMsg.includes("Fehler") ? "#ffd0d0" : "#c8e0a0"}`,
+                }}>
                   {resetMsg}
                 </p>
               )}
+
               <button
                 type="submit"
                 disabled={resetLoading}
-                className="w-full bg-white text-black font-medium rounded-lg py-2 text-sm hover:bg-zinc-200 transition disabled:opacity-50"
+                style={{
+                  width: "100%",
+                  background: "#111",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "11px",
+                  fontSize: "13.5px",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  opacity: resetLoading ? 0.6 : 1,
+                  transition: "all 0.15s",
+                }}
               >
                 {resetLoading ? "Wird gesendet..." : "Reset-Link senden"}
               </button>
+
               <button
                 type="button"
                 onClick={() => { setShowReset(false); setResetMsg(""); }}
-                className="text-zinc-500 text-xs hover:text-zinc-300 transition text-center"
+                style={{
+                  background: "none",
+                  border: "none",
+                  fontSize: "12px",
+                  color: "#bbb",
+                  cursor: "pointer",
+                  textAlign: "center",
+                  padding: "4px",
+                  transition: "color 0.15s",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = "#666"}
+                onMouseLeave={(e) => e.currentTarget.style.color = "#bbb"}
               >
-                Zurück zum Login
+                ← Zurück zum Login
               </button>
             </form>
-          </>
-        )}
+          )}
+        </div>
+
+        {/* Footer */}
+        <p style={{ textAlign: "center", fontSize: "11px", color: "#ccc", marginTop: "20px" }}>
+          Powered by Fusionary AI
+        </p>
+
       </div>
     </main>
   );

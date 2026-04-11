@@ -30,6 +30,7 @@ export default function CustomerKnowledgePage() {
   const [newContent, setNewContent] = useState("");
   const [adding, setAdding] = useState(false);
   const [addMsg, setAddMsg] = useState("");
+  const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -67,6 +68,7 @@ export default function CustomerKnowledgePage() {
       }
 
       setLoading(false);
+      setTimeout(() => setRevealed(true), 50);
     }
     load();
   }, [router]);
@@ -131,99 +133,114 @@ export default function CustomerKnowledgePage() {
     });
   }
 
+  const revealStyle = (delay: number) => ({
+    opacity: revealed ? 1 : 0,
+    transform: revealed ? "translateY(0)" : "translateY(10px)",
+    transition: `opacity 0.5s ease ${delay}s, transform 0.5s ease ${delay}s`,
+  });
+
+  const inputStyle = {
+    width: "100%",
+    background: "#fafafa",
+    color: "#111",
+    borderRadius: "8px",
+    padding: "9px 12px",
+    fontSize: "13px",
+    border: "1px solid #efefed",
+    outline: "none",
+    boxSizing: "border-box" as const,
+    transition: "border-color 0.15s",
+    fontFamily: "inherit",
+  };
+
   if (loading) {
     return (
-      <div style={{ display: "flex", minHeight: "100vh", background: "#0a0a0a", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "14px" }}>Wird geladen...</p>
+      <div style={{ display: "flex", minHeight: "100vh", background: "#fafafa", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: "#bbb", fontSize: "14px" }}>Wird geladen...</p>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#f5f5f3" }}>
+    <div style={{ display: "flex", minHeight: "100vh", background: "#fafafa" }}>
       <Sidebar role={role} tenantName={tenant?.name} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+
         {/* Topbar */}
         <div style={{
           background: "#fff",
-          borderBottom: "0.5px solid rgba(0,0,0,0.08)",
-          padding: "14px 28px",
+          borderBottom: "1px solid #efefed",
+          padding: "22px 28px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          ...revealStyle(0),
         }}>
           <div>
-            <p style={{ fontSize: "15px", fontWeight: 500, color: "#111" }}>Wissensbasis</p>
-            {tenant && <p style={{ fontSize: "12px", color: "#888", marginTop: "1px" }}>{tenant.name}</p>}
+            <p style={{
+              fontFamily: "var(--font-playfair), Georgia, serif",
+              fontSize: "22px",
+              fontWeight: 400,
+              color: "#0a0a0a",
+              letterSpacing: "-0.3px",
+            }}>
+              Wissensbasis,{" "}
+              <span style={{ fontWeight: 600, fontStyle: "italic", color: "#2d5a1b" }}>
+                {tenant?.name ?? ""}
+              </span>
+            </p>
+            <p style={{ fontSize: "12px", color: "#bbb", marginTop: "4px" }}>
+              {items.length} Einträge · Was soll dein Bot wissen?
+            </p>
           </div>
-          <span style={{ fontSize: "12px", color: "#888" }}>{items.length} Einträge</span>
         </div>
 
-        <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "24px" }}>
+        <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "16px" }}>
 
           {/* Neuen Eintrag */}
           <div style={{
             background: "#fff",
-            border: "0.5px solid rgba(0,0,0,0.08)",
-            borderRadius: "12px",
+            border: "1px solid #efefed",
+            borderRadius: "10px",
             padding: "20px 24px",
+            ...revealStyle(0.1),
           }}>
-            <p style={{ fontSize: "13px", fontWeight: 500, color: "#111", marginBottom: "4px" }}>
+            <p style={{ fontSize: "12px", fontWeight: 600, color: "#333", marginBottom: "4px" }}>
               Neuen Eintrag hinzufügen
             </p>
-            <p style={{ fontSize: "12px", color: "#888", marginBottom: "16px" }}>
+            <p style={{ fontSize: "11.5px", color: "#bbb", marginBottom: "16px" }}>
               Füge Texte oder FAQs hinzu die dein Bot kennen soll.
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
               <div>
-                <label style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "4px" }}>
+                <label style={{ fontSize: "11px", color: "#999", display: "block", marginBottom: "5px", fontWeight: 500 }}>
                   Titel (optional)
                 </label>
                 <input
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="z.B. Öffnungszeiten, Leistungen..."
-                  style={{
-                    width: "100%",
-                    background: "#f5f5f3",
-                    color: "#111",
-                    borderRadius: "8px",
-                    padding: "8px 12px",
-                    fontSize: "13px",
-                    border: "0.5px solid rgba(0,0,0,0.12)",
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
+                  style={inputStyle}
+                  onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
+                  onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
                 />
               </div>
-
               <div>
-                <label style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "4px" }}>
-                  Inhalt <span style={{ color: "#E24B4A" }}>*</span>
+                <label style={{ fontSize: "11px", color: "#999", display: "block", marginBottom: "5px", fontWeight: 500 }}>
+                  Inhalt <span style={{ color: "#e05" }}>*</span>
                 </label>
                 <textarea
                   value={newContent}
                   onChange={(e) => setNewContent(e.target.value)}
                   placeholder="Schreibe hier den Text den der Bot lernen soll..."
                   rows={4}
-                  style={{
-                    width: "100%",
-                    background: "#f5f5f3",
-                    color: "#111",
-                    borderRadius: "8px",
-                    padding: "8px 12px",
-                    fontSize: "13px",
-                    border: "0.5px solid rgba(0,0,0,0.12)",
-                    outline: "none",
-                    resize: "none",
-                    boxSizing: "border-box",
-                    fontFamily: "inherit",
-                  }}
+                  style={{ ...inputStyle, resize: "none" }}
+                  onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
+                  onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
                 />
               </div>
-
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <button
                   onClick={handleAdd}
@@ -233,20 +250,18 @@ export default function CustomerKnowledgePage() {
                     color: "#fff",
                     border: "none",
                     borderRadius: "8px",
-                    padding: "8px 18px",
+                    padding: "9px 18px",
                     fontSize: "13px",
                     fontWeight: 500,
                     cursor: "pointer",
                     opacity: adding || !newContent.trim() ? 0.5 : 1,
+                    transition: "all 0.15s",
                   }}
                 >
                   {adding ? "Wird hinzugefügt..." : "Hinzufügen"}
                 </button>
                 {addMsg && (
-                  <span style={{
-                    fontSize: "12px",
-                    color: addMsg.includes("Fehler") ? "#E24B4A" : "#3B6D11",
-                  }}>
+                  <span style={{ fontSize: "12px", color: addMsg.includes("Fehler") ? "#e05" : "#3a6b10" }}>
                     {addMsg}
                   </span>
                 )}
@@ -255,56 +270,64 @@ export default function CustomerKnowledgePage() {
           </div>
 
           {/* Bestehende Einträge */}
-          <div>
-            <p style={{ fontSize: "13px", fontWeight: 500, color: "#111", marginBottom: "12px" }}>
+          <div style={revealStyle(0.2)}>
+            <p style={{ fontSize: "12px", fontWeight: 600, color: "#333", marginBottom: "10px" }}>
               Bestehende Einträge
-              <span style={{ fontSize: "12px", fontWeight: 400, color: "#888", marginLeft: "8px" }}>
+              <span style={{ fontSize: "11px", fontWeight: 400, color: "#bbb", marginLeft: "6px" }}>
                 ({items.length})
               </span>
             </p>
 
             {items.length === 0 ? (
               <div style={{
-                background: "#fff",
-                border: "0.5px solid rgba(0,0,0,0.08)",
-                borderRadius: "12px",
-                padding: "32px",
-                textAlign: "center",
+                background: "#fff", border: "1px solid #efefed",
+                borderRadius: "10px", padding: "32px", textAlign: "center",
               }}>
-                <p style={{ fontSize: "13px", color: "#aaa" }}>Noch keine Einträge vorhanden.</p>
+                <p style={{ fontSize: "13px", color: "#bbb" }}>Noch keine Einträge vorhanden.</p>
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
                 {items.map((item) => (
-                  <div key={item.id} style={{
-                    background: "#fff",
-                    border: "0.5px solid rgba(0,0,0,0.08)",
-                    borderRadius: "12px",
-                    padding: "14px 18px",
-                    display: "flex",
-                    alignItems: "flex-start",
-                    justifyContent: "space-between",
-                    gap: "12px",
-                  }}>
+                  <div
+                    key={item.id}
+                    style={{
+                      background: "#fff",
+                      border: "1px solid #efefed",
+                      borderRadius: "9px",
+                      padding: "12px 16px",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      transition: "all 0.15s",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "#c8c4f8";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "#efefed";
+                    }}
+                  >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       {item.title && (
-                        <p style={{ fontSize: "13px", fontWeight: 500, color: "#111", marginBottom: "3px" }}>
+                        <p style={{ fontSize: "12.5px", fontWeight: 600, color: "#0a0a0a", marginBottom: "3px" }}>
                           {item.title}
                         </p>
                       )}
                       <p style={{
-                        fontSize: "12px",
-                        color: "#666",
+                        fontSize: "12px", color: "#888",
                         overflow: "hidden",
                         display: "-webkit-box",
                         WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
+                        WebkitBoxOrient: "vertical" as const,
                       }}>
                         {item.content}
                       </p>
-                      <div style={{ display: "flex", gap: "12px", marginTop: "6px" }}>
-                        <span style={{ fontSize: "11px", color: "#aaa" }}>{formatDate(item.created_at)}</span>
-                        {item.source && <span style={{ fontSize: "11px", color: "#aaa" }}>{item.source}</span>}
+                      <div style={{ display: "flex", gap: "10px", marginTop: "6px" }}>
+                        <span style={{ fontSize: "10.5px", color: "#bbb" }}>{formatDate(item.created_at)}</span>
+                        {item.source && (
+                          <span style={{ fontSize: "10.5px", color: "#bbb" }}>{item.source}</span>
+                        )}
                       </div>
                     </div>
                     <button
@@ -314,11 +337,14 @@ export default function CustomerKnowledgePage() {
                         background: "transparent",
                         border: "none",
                         cursor: "pointer",
-                        fontSize: "12px",
-                        color: "#bbb",
+                        fontSize: "11.5px",
+                        color: "#ccc",
                         padding: "2px 4px",
                         flexShrink: 0,
+                        transition: "color 0.15s",
                       }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = "#e05"}
+                      onMouseLeave={(e) => e.currentTarget.style.color = "#ccc"}
                     >
                       {deleting === item.id ? "..." : "Löschen"}
                     </button>
