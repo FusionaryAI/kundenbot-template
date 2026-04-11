@@ -350,8 +350,25 @@ async function ragSearch(tenantId: string, query: string, k = 4): Promise<RagMat
 }
 
 function systemPrompt(companyName: string, fallbackMessage: string, safetyHint: string) {
+  const now = new Date();
+  const dayNames = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
+  const day = dayNames[now.getDay()];
+  const date = now.toLocaleDateString("de-DE", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    timeZone: "Europe/Berlin",
+  });
+  const time = now.toLocaleTimeString("de-DE", {
+    hour: "2-digit", minute: "2-digit",
+    timeZone: "Europe/Berlin",
+  });
+
   return `Rolle:
 Du bist ein professioneller digitaler Assistent des Unternehmens "${companyName}".
+
+AKTUELLES DATUM UND UHRZEIT:
+- Heute ist ${day}, der ${date}
+- Aktuelle Uhrzeit: ${time} Uhr (Europa/Berlin)
+- Nutze diese Information wenn Fragen wie "heute", "jetzt", "gerade", "aktuell" gestellt werden.
 
 REGELN:
 - Antworte klar, höflich und direkt auf die Frage.
