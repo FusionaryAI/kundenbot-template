@@ -134,7 +134,6 @@ export default function LeadsPage() {
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 
-        {/* Topbar */}
         <div style={{
           background: "#fff",
           borderBottom: "1px solid #efefed",
@@ -165,12 +164,7 @@ export default function LeadsPage() {
 
         <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "16px" }}>
 
-          {/* Filter Tabs */}
-          <div style={{
-            display: "flex",
-            gap: "6px",
-            ...revealStyle(0.05),
-          }}>
+          <div style={{ display: "flex", gap: "6px", ...revealStyle(0.05) }}>
             {[
               { key: "alle", label: "Alle" },
               { key: "neu", label: "Neu" },
@@ -207,7 +201,6 @@ export default function LeadsPage() {
             ))}
           </div>
 
-          {/* Leads Liste */}
           <div style={revealStyle(0.1)}>
             {filteredLeads.length === 0 ? (
               <div style={{
