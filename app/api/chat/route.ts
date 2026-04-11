@@ -60,13 +60,12 @@ const openai = new OpenAI({
 });
 
 // RAG Threshold: welche Snippets kommen als Kandidaten überhaupt in Frage
-const MIN_SIMILARITY = 0.20;
-const KB_GOOD_ENOUGH = 0.22;
+const MIN_SIMILARITY = 0.30;
+const KB_GOOD_ENOUGH = 0.32;
 
-// ✅ Confidence Tuning
-const HIGH_CONF_SIM = 0.35;
-const MID_CONF_SIM = 0.25;
-const MARGIN_CONF = 0.06;
+const HIGH_CONF_SIM = 0.45;
+const MID_CONF_SIM = 0.35;
+const MARGIN_CONF = 0.08;
 
 // ✅ Medizin-Safety
 const MEDICAL_SAFETY_FALLBACK =
