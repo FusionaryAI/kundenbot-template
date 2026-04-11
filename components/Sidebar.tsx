@@ -8,23 +8,6 @@ type Props = {
   tenantName?: string | null;
 };
 
-function FusionaryLogo() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="50" cy="35" r="22" stroke="white" strokeWidth="5" fill="none"/>
-      <circle cx="50" cy="65" r="22" stroke="white" strokeWidth="5" fill="none"/>
-      <path
-        d="M28 50 C28 50, 38 38, 50 50 C62 62, 72 50, 72 50"
-        stroke="white" strokeWidth="5" fill="none" strokeLinecap="round"
-      />
-      <path
-        d="M28 50 C28 50, 38 62, 50 50 C62 38, 72 50, 72 50"
-        stroke="white" strokeWidth="5" fill="none" strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 const navItems = [
   {
     section: "Übersicht",
@@ -33,7 +16,7 @@ const navItems = [
         label: "Dashboard",
         href: "/dashboard",
         icon: (
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <rect x="1" y="1" width="6" height="6" rx="1.5"/>
             <rect x="9" y="1" width="6" height="6" rx="1.5"/>
             <rect x="1" y="9" width="6" height="6" rx="1.5"/>
@@ -50,7 +33,7 @@ const navItems = [
         label: "Wissensbasis",
         href: "/dashboard/knowledge",
         icon: (
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M2 3h12v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3z"/>
             <path d="M5 7h6M5 9.5h3"/>
           </svg>
@@ -68,7 +51,7 @@ const adminItems = [
         label: "Alle Kunden",
         href: "/admin",
         icon: (
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <circle cx="6" cy="5" r="2.5"/>
             <path d="M1 13c0-2.5 2-4 5-4s5 1.5 5 4"/>
             <path d="M11 3c1.5 0 3 1 3 3s-1.5 3-3 3"/>
@@ -80,7 +63,7 @@ const adminItems = [
         label: "Neuen Kunden",
         href: "/admin/new",
         icon: (
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <circle cx="7" cy="6" r="3"/>
             <path d="M1 14c0-3 2.5-5 6-5"/>
             <path d="M12 10v4M10 12h4"/>
@@ -105,38 +88,37 @@ export default function Sidebar({ role, tenantName }: Props) {
 
   return (
     <div style={{
-      width: "220px",
-      background: "#0a0a0a",
+      width: "210px",
+      background: "#fff",
+      borderRight: "1px solid #efefed",
       display: "flex",
       flexDirection: "column",
-      padding: "20px 12px",
+      padding: "18px 10px",
       flexShrink: 0,
       minHeight: "100vh",
     }}>
       {/* Logo */}
       <div style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "10px",
-        padding: "0 8px 20px",
-        borderBottom: "0.5px solid rgba(255,255,255,0.08)",
-        marginBottom: "12px",
+        fontSize: "14px",
+        fontWeight: 600,
+        color: "#111",
+        padding: "2px 8px 18px",
+        borderBottom: "1px solid #f0f0f0",
+        marginBottom: "16px",
+        letterSpacing: "-0.2px",
       }}>
-        <FusionaryLogo />
-        <span style={{ fontSize: "14px", fontWeight: 500, color: "#fff" }}>
-          Fusionary AI
-        </span>
+        Fusionary AI
       </div>
 
       {/* Navigation */}
       {allItems.map((group) => (
-        <div key={group.section} style={{ marginBottom: "8px" }}>
+        <div key={group.section} style={{ marginBottom: "4px" }}>
           <p style={{
-            fontSize: "10px",
-            color: "rgba(255,255,255,0.25)",
-            padding: "8px 10px 4px",
-            letterSpacing: "0.08em",
+            fontSize: "9px",
+            color: "#ccc",
+            letterSpacing: "0.1em",
             textTransform: "uppercase",
+            padding: "8px 8px 4px",
           }}>
             {group.section}
           </p>
@@ -150,17 +132,31 @@ export default function Sidebar({ role, tenantName }: Props) {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "10px",
-                  padding: "8px 10px",
-                  borderRadius: "6px",
-                  fontSize: "13px",
-                  color: isActive ? "#AFA9EC" : "rgba(255,255,255,0.5)",
-                  background: isActive ? "rgba(127,119,221,0.15)" : "transparent",
+                  gap: "8px",
+                  padding: "7px 9px",
+                  borderRadius: "7px",
+                  fontSize: "12.5px",
+                  color: isActive ? "#5b53d8" : "#aaa",
+                  background: isActive ? "#f5f4ff" : "transparent",
+                  fontWeight: isActive ? 500 : 400,
                   border: "none",
                   cursor: "pointer",
                   width: "100%",
                   textAlign: "left",
                   transition: "all 0.15s",
+                  marginBottom: "2px",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.background = "#f7f7f5";
+                    e.currentTarget.style.color = "#444";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = "#aaa";
+                  }
                 }}
               >
                 {item.icon}
@@ -171,74 +167,84 @@ export default function Sidebar({ role, tenantName }: Props) {
         </div>
       ))}
 
-      {/* User */}
+      {/* Footer */}
       <div style={{
         marginTop: "auto",
-        paddingTop: "16px",
-        borderTop: "0.5px solid rgba(255,255,255,0.08)",
+        paddingTop: "14px",
+        borderTop: "1px solid #f0f0f0",
       }}>
         <div style={{
           display: "flex",
           alignItems: "center",
           gap: "8px",
-          padding: "6px 8px",
-          justifyContent: "space-between",
+          padding: "4px 8px",
+          marginBottom: "4px",
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{
-              width: "28px",
-              height: "28px",
-              borderRadius: "50%",
-              background: "#534AB7",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "11px",
-              fontWeight: 500,
-              color: "#CECBF6",
-              flexShrink: 0,
-            }}>
-              {initials}
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <p style={{
-                fontSize: "12px",
-                color: "rgba(255,255,255,0.8)",
-                fontWeight: 500,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                maxWidth: "110px",
-              }}>
-                {tenantName ?? "Konto"}
-              </p>
-              <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.3)" }}>
-                {role === "super_admin" ? "Super Admin" : "Kunde"}
-              </p>
-            </div>
+          <div style={{
+            width: "26px",
+            height: "26px",
+            borderRadius: "8px",
+            background: "#eeecff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "10px",
+            fontWeight: 700,
+            color: "#5b53d8",
+            flexShrink: 0,
+          }}>
+            {initials}
           </div>
-          <button
-            onClick={async () => {
-              await supabase.auth.signOut();
-              router.push("/login");
-            }}
-            title="Abmelden"
-            style={{
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              color: "rgba(255,255,255,0.3)",
-              padding: "4px",
-              borderRadius: "4px",
-              display: "flex",
-              alignItems: "center",
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M6 2H3a1 1 0 00-1 1v10a1 1 0 001 1h3M11 11l3-3-3-3M14 8H6"/>
-            </svg>
-          </button>
+          <div style={{ minWidth: 0 }}>
+            <p style={{
+              fontSize: "11.5px",
+              color: "#444",
+              fontWeight: 500,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              maxWidth: "120px",
+            }}>
+              {tenantName ?? "Konto"}
+            </p>
+            <p style={{ fontSize: "10px", color: "#bbb" }}>
+              {role === "super_admin" ? "Super Admin" : "Kunde"}
+            </p>
+          </div>
         </div>
+        <button
+          onClick={async () => {
+            await supabase.auth.signOut();
+            router.push("/login");
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "6px 9px",
+            borderRadius: "6px",
+            fontSize: "11.5px",
+            color: "#bbb",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            width: "100%",
+            transition: "all 0.15s",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "#fff0f0";
+            e.currentTarget.style.color = "#e05";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.color = "#bbb";
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M6 2H3a1 1 0 00-1 1v10a1 1 0 001 1h3M11 11l3-3-3-3M14 8H6"/>
+          </svg>
+          Abmelden
+        </button>
       </div>
     </div>
   );
