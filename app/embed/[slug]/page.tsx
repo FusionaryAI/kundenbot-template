@@ -13,7 +13,6 @@ type EmbedProps = {
   params: { slug: string };
 };
 
-// rein visuell (optional)
 const TENANT_LABELS: Record<string, string> = {
   "hausarzt-painten": "Arztpraxis",
   "muster-demo": "Beispielkunde",
@@ -26,14 +25,12 @@ function getTenantLabel(slug?: string) {
 
 const Markdown = ReactMarkdown as any;
 
-/** ✅ Robust: slug aus URL-Pfad ziehen, falls params.slug mal fehlt */
 function slugFromPathname(): string | null {
   if (typeof window === "undefined") return null;
   const m = window.location.pathname.match(/\/embed\/([^/?#]+)/);
   return m?.[1] ? decodeURIComponent(m[1]) : null;
 }
 
-/** Minimaler Inline-Iconsatz (ohne externe Lib) */
 function IconX(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
@@ -87,7 +84,6 @@ function IconClock(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-/** Universeller KI-Avatar (Option B: leicht warm) */
 function AssistantAvatar({ size = 44 }: { size?: number }) {
   return (
     <div className="relative grid place-items-center overflow-hidden rounded-full" style={{ width: size, height: size }} aria-hidden="true">
@@ -102,7 +98,6 @@ function AssistantAvatar({ size = 44 }: { size?: number }) {
 }
 
 export default function Embed({ params }: EmbedProps) {
-  // ✅ slug stabilisieren (params -> pathname fallback)
   const [slugSafe, setSlugSafe] = useState<string>(() => params?.slug || "");
   useEffect(() => {
     const s = params?.slug || slugFromPathname() || "";
@@ -114,13 +109,43 @@ export default function Embed({ params }: EmbedProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
-
-  const welcomeText =
-    "Hallo! Ich bin der digitale Assistent. Stellen Sie mir Ihre Frage – ich helfe Ihnen sofort weiter.";
-
-  const [messages, setMessages] = useState<Message[]>([{ role: "assistant", text: welcomeText }]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [welcomeLoaded, setWelcomeLoaded] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Welcome Message aus Supabase laden
+  useEffect(() => {
+    async function loadWelcome() {
+      const slug = params?.slug || slugFromPathname() || "";
+      if (!slug || welcomeLoaded) return;
+
+      try {
+        const origin = typeof window !== "undefined" ? window.location.origin : "";
+        const res = await fetch(`${origin}/api/chat`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-tenant-slug": slug,
+          },
+          body: JSON.stringify({ slug, message: "Hallo" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        const welcome = data?.welcome_message?.trim();
+        setMessages([{
+          role: "assistant",
+          text: welcome || "Hallo! Wie kann ich Ihnen helfen?",
+        }]);
+      } catch {
+        setMessages([{
+          role: "assistant",
+          text: "Hallo! Wie kann ich Ihnen helfen?",
+        }]);
+      }
+      setWelcomeLoaded(true);
+    }
+    loadWelcome();
+  }, [params?.slug, welcomeLoaded]);
 
   // Autoscroll
   useEffect(() => {
@@ -151,7 +176,6 @@ export default function Embed({ params }: EmbedProps) {
     try {
       const origin = typeof window !== "undefined" ? window.location.origin : "";
       const apiUrl = `${origin}/api/chat`;
-
       const debug = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("debug") : null;
       const finalUrl = debug === "1" ? `${apiUrl}?debug=1` : apiUrl;
 
@@ -201,9 +225,7 @@ export default function Embed({ params }: EmbedProps) {
   ];
 
   return (
-    // ✅ Wichtig: iframe-friendly Höhe
     <main className="h-full w-full bg-transparent">
-      {/* ✅ Kein fixed-Container mehr (der clippt im iframe). Stattdessen: full-height layout */}
       <div className="h-full w-full p-4 box-border">
         {!isOpen && (
           <button
@@ -217,7 +239,6 @@ export default function Embed({ params }: EmbedProps) {
         )}
 
         {isOpen && (
-          // ✅ h-full + flex-col: Inhalt passt immer in iframe
           <section className="h-full w-[380px] max-w-[92vw] overflow-hidden rounded-[28px] bg-white/75 shadow-[0_24px_80px_rgba(0,0,0,0.28)] ring-1 ring-black/10 backdrop-blur-xl flex flex-col">
             <header className="relative overflow-hidden px-5 py-4 shrink-0">
               <div className="absolute inset-0 bg-gradient-to-b from-[#0b0b0c]/95 to-[#0b0b0c]/70" />
@@ -239,7 +260,6 @@ export default function Embed({ params }: EmbedProps) {
                     </div>
                   </div>
                 </div>
-
                 <button
                   type="button"
                   onClick={() => setIsOpen(false)}
@@ -252,13 +272,28 @@ export default function Embed({ params }: EmbedProps) {
               </div>
             </header>
 
-            {/* ✅ Flex body (min-h-0 ist entscheidend für korrektes Scrollen) */}
             <div className="px-4 pb-4 pt-4 flex-1 min-h-0 flex flex-col">
-              {/* ✅ Messages: flex-1 statt fixed height */}
               <div
                 ref={scrollRef}
                 className="min-h-0 flex-1 space-y-4 overflow-y-auto rounded-[22px] bg-white/80 p-4 ring-1 ring-black/5 backdrop-blur"
               >
+                {messages.length === 0 && (
+                  <div className="flex justify-start gap-2">
+                    <div className="mt-0.5 shrink-0">
+                      <AssistantAvatar size={28} />
+                    </div>
+                    <div className="rounded-[18px] bg-white px-4 py-3 text-[14px] text-slate-600 ring-1 ring-black/5 shadow-[0_10px_30px_rgba(0,0,0,0.08)]">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex gap-1">
+                          <span className="h-1.5 w-1.5 animate-[pulse_1.2s_ease-in-out_infinite] rounded-full bg-slate-400" />
+                          <span className="h-1.5 w-1.5 animate-[pulse_1.2s_ease-in-out_0.2s_infinite] rounded-full bg-slate-400" />
+                          <span className="h-1.5 w-1.5 animate-[pulse_1.2s_ease-in-out_0.4s_infinite] rounded-full bg-slate-400" />
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {messages.map((m, i) => {
                   const isUser = m.role === "user";
                   return (
@@ -268,7 +303,6 @@ export default function Embed({ params }: EmbedProps) {
                           <AssistantAvatar size={28} />
                         </div>
                       )}
-
                       <div
                         className={[
                           "max-w-[86%] rounded-[18px] px-4 py-3 text-[14px] leading-relaxed ring-1",
@@ -315,7 +349,6 @@ export default function Embed({ params }: EmbedProps) {
                 )}
               </div>
 
-              {/* Quick actions */}
               <div className="mt-4 shrink-0">
                 <div className="mb-2 text-xs font-medium tracking-wide text-slate-500">Empfohlene Fragen</div>
                 <div className="grid grid-cols-2 gap-2">
@@ -337,7 +370,6 @@ export default function Embed({ params }: EmbedProps) {
                 </div>
               </div>
 
-              {/* Input */}
               <form
                 className="mt-4 flex items-center gap-2 shrink-0"
                 onSubmit={(e) => {
@@ -354,7 +386,6 @@ export default function Embed({ params }: EmbedProps) {
                     className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
                   />
                 </div>
-
                 <button
                   type="submit"
                   disabled={isSending}
