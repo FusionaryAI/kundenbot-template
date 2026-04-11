@@ -185,7 +185,13 @@ export default function Embed({ params }: EmbedProps) {
           "Content-Type": "application/json",
           "x-tenant-slug": slug,
         },
-        body: JSON.stringify({ slug, message: q }),
+        body: JSON.stringify({
+  slug,
+  message: q,
+  messages: messages
+    .slice(-6)
+    .map((m) => ({ role: m.role, content: m.text })),
+}),
       });
 
       const data = await res.json().catch(() => ({}));

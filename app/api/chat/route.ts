@@ -1394,25 +1394,40 @@ export async function POST(req: NextRequest) {
     const system = systemPrompt(tenant.name, settings.fallback_message, safetyHint);
     const pageHint = buildPageHint(handoff.page_context ?? context ?? null);
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.35,
-      messages: [
-        { role: "system", content: system },
-        {
-          role: "user",
-          content: `Nutzerfrage:
-"""${message}"""
-${pageHint}
-Unternehmenswissen:
-${kbBullets}
+    // Chat-Verlauf aus Request holen
+type HistoryMessage = { role: "user" | "assistant"; content: string };
+const history: HistoryMessage[] = Array.isArray(body?.messages)
+  ? (body.messages as any[])
+      .filter((m) => m?.role && m?.content && typeof m.content === "string")
+      .slice(-6)
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
+  : [];
 
-Bitte antworte strukturiert, sachlich, hilfreich und ohne Begrüßung.
+const completion = await openai.chat.completions.create({
+  model: "gpt-4o-mini",
+  temperature: 0.35,
+  messages: [
+    { role: "system", content: system },
+    // Kontext-Block mit Wissen
+    {
+      role: "user",
+      content: `Verfügbares Unternehmenswissen für diese Konversation:
+${kbBullets}
+${pageHint}
 WICHTIG:
+- Antworte nur auf Basis dieses Wissens.
 - Wenn es um medizinische Themen geht: formuliere ausschließlich als "Die Praxis bietet laut Website ..." und gib keine medizinische Beratung/Diagnose/Behandlungsempfehlungen.`,
-        },
-      ],
-    });
+    },
+    { role: "assistant", content: "Verstanden. Ich beantworte Fragen ausschließlich auf Basis dieser Informationen." },
+    // Bisheriger Gesprächsverlauf
+    ...history,
+    // Aktuelle Frage
+    {
+      role: "user",
+      content: message,
+    },
+  ],
+});
 
     let text = completion.choices[0]?.message?.content ?? settings.fallback_message;
 
