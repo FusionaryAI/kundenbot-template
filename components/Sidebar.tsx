@@ -24,6 +24,16 @@ const navItems = [
           </svg>
         ),
       },
+      {
+        label: "Leads",
+        href: "/dashboard/leads",
+        icon: (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="8" cy="6" r="3"/>
+            <path d="M2 14c0-3 2.5-5 6-5s6 2 6 5"/>
+          </svg>
+        ),
+      },
     ],
   },
   {
@@ -97,7 +107,6 @@ export default function Sidebar({ role, tenantName }: Props) {
       flexShrink: 0,
       minHeight: "100vh",
     }}>
-      {/* Logo */}
       <div style={{
         fontSize: "14px",
         fontWeight: 600,
@@ -110,7 +119,6 @@ export default function Sidebar({ role, tenantName }: Props) {
         Fusionary AI
       </div>
 
-      {/* Navigation */}
       {allItems.map((group) => (
         <div key={group.section} style={{ marginBottom: "4px" }}>
           <p style={{
@@ -167,7 +175,6 @@ export default function Sidebar({ role, tenantName }: Props) {
         </div>
       ))}
 
-      {/* Footer */}
       <div style={{
         marginTop: "auto",
         paddingTop: "14px",
