@@ -185,7 +185,7 @@ export default function CustomerKnowledgePage() {
               color: "#0a0a0a",
               letterSpacing: "-0.3px",
             }}>
-              Wissensbasis,{" "}
+              Wissensbasis für{" "}
               <span style={{ fontWeight: 600, fontStyle: "italic", color: "#2d5a1b" }}>
                 {tenant?.name ?? ""}
               </span>

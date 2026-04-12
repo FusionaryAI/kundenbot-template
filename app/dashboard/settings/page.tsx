@@ -151,7 +151,7 @@ export default function SettingsPage() {
             color: "#0a0a0a",
             letterSpacing: "-0.3px",
           }}>
-            Integrationen,{" "}
+            Integrationen für{" "}
             <span style={{ fontWeight: 600, fontStyle: "italic", color: "#2d5a1b" }}>
               {tenant?.name ?? ""}
             </span>
