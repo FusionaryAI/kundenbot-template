@@ -49,6 +49,18 @@ const navItems = [
           </svg>
         ),
       },
+      {
+        label: "Integrationen",
+        href: "/dashboard/settings",
+        icon: (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="4" cy="4" r="2"/>
+            <circle cx="12" cy="4" r="2"/>
+            <circle cx="8" cy="12" r="2"/>
+            <path d="M4 6v2a4 4 0 008 0V6"/>
+          </svg>
+        ),
+      },
     ],
   },
 ];
@@ -130,7 +142,7 @@ export default function Sidebar({ role, tenantName }: Props) {
           }}>
             {group.section}
           </p>
-          {group.items.map((item) => {
+          {group.items.map((item: any) => {
             const isActive = pathname === item.href ||
               (item.href !== "/dashboard" && pathname?.startsWith(item.href));
             return (

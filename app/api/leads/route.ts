@@ -289,6 +289,31 @@ export async function POST(req: NextRequest) {
       text: briefing.one_liner + "\n\n" + message,
     });
 
+    // Integrationen feuern (Slack, HubSpot, Pipedrive) – fire & forget
+    const baseUrl =
+      process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+
+    if (baseUrl) {
+      fetch(`${baseUrl}/api/integrations/notify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenant_id: tenant.id,
+          lead: {
+            tenant_id: tenant.id,
+            name: name ?? null,
+            email: email ?? null,
+            phone: phone ?? null,
+            message,
+            type,
+            appointment_topic,
+            appointment_window,
+          },
+        }),
+      }).catch((e) => console.warn("Integration notify failed:", e));
+    }
+
     return NextResponse.json({
       ok: true,
       lead_id: inserted.id,
