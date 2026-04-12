@@ -200,20 +200,36 @@ export default function TenantDetailPage() {
               Einstellungen, Leads & Zugang verwalten
             </p>
           </div>
-          <button
-            onClick={() => router.push(`/admin/${slug}/knowledge`)}
-            style={{
-              fontSize: "13px",
-              padding: "8px 16px",
-              borderRadius: "8px",
-              border: "0.5px solid rgba(0,0,0,0.15)",
-              background: "transparent",
-              color: "#444",
-              cursor: "pointer",
-            }}
-          >
-            Wissensbasis →
-          </button>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              onClick={() => router.push(`/admin/${slug}/knowledge`)}
+              style={{
+                fontSize: "13px",
+                padding: "8px 16px",
+                borderRadius: "8px",
+                border: "0.5px solid rgba(0,0,0,0.15)",
+                background: "transparent",
+                color: "#444",
+                cursor: "pointer",
+              }}
+            >
+              Wissensbasis →
+            </button>
+            <button
+              onClick={() => router.push(`/admin/${slug}/integrations`)}
+              style={{
+                fontSize: "13px",
+                padding: "8px 16px",
+                borderRadius: "8px",
+                border: "0.5px solid rgba(91,83,216,0.3)",
+                background: "#f5f4ff",
+                color: "#5b53d8",
+                cursor: "pointer",
+              }}
+            >
+              Integrationen →
+            </button>
+          </div>
         </div>
 
         <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "20px" }}>
