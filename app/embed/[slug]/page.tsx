@@ -48,7 +48,6 @@ export default function Embed({ params }: EmbedProps) {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // Welcome Message aus Supabase laden
   useEffect(() => {
     async function loadWelcome() {
       const slug = params?.slug || slugFromPathname() || "";
@@ -81,7 +80,6 @@ export default function Embed({ params }: EmbedProps) {
     loadWelcome();
   }, [params?.slug, welcomeLoaded]);
 
-  // Autoscroll
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -178,7 +176,7 @@ export default function Embed({ params }: EmbedProps) {
               alignItems: "center",
               gap: "8px",
               borderRadius: "100px",
-              background: "#0b0b0c",
+              background: "#1a5c3a",
               padding: "10px 20px",
               fontSize: "13px",
               fontWeight: 500,
@@ -188,7 +186,7 @@ export default function Embed({ params }: EmbedProps) {
               boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
             }}
           >
-            <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
+            <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#fff", display: "inline-block" }} />
             Chat öffnen
           </button>
         )}
@@ -232,7 +230,7 @@ export default function Embed({ params }: EmbedProps) {
                 </div>
                 <div>
                   <p style={{ fontSize: "14px", fontWeight: 600, color: "#0a0a0a", letterSpacing: "-0.2px" }}>
-                    Fusionary AI Demo
+                    KI-Assistent
                   </p>
                   <p style={{ fontSize: "11px", color: "#10b981", display: "flex", alignItems: "center", gap: "4px" }}>
                     <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
@@ -254,7 +252,8 @@ export default function Embed({ params }: EmbedProps) {
                   alignItems: "center",
                   justifyContent: "center",
                   color: "#888",
-                  fontSize: "14px",
+                  fontSize: "16px",
+                  lineHeight: 1,
                 }}
               >
                 ×
@@ -284,12 +283,13 @@ export default function Embed({ params }: EmbedProps) {
                   padding: "12px 16px",
                   fontSize: "13.5px",
                   color: "#888",
+                  display: "flex",
+                  gap: "4px",
+                  alignItems: "center",
                 }}>
-                  <span style={{ display: "inline-flex", gap: "4px" }}>
-                    <span style={{ animation: "pulse 1.2s infinite", width: "6px", height: "6px", borderRadius: "50%", background: "#ccc", display: "inline-block" }} />
-                    <span style={{ animation: "pulse 1.2s 0.2s infinite", width: "6px", height: "6px", borderRadius: "50%", background: "#ccc", display: "inline-block" }} />
-                    <span style={{ animation: "pulse 1.2s 0.4s infinite", width: "6px", height: "6px", borderRadius: "50%", background: "#ccc", display: "inline-block" }} />
-                  </span>
+                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#ccc", display: "inline-block" }} />
+                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#ccc", display: "inline-block" }} />
+                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#ccc", display: "inline-block" }} />
                 </div>
               )}
 
@@ -301,9 +301,9 @@ export default function Embed({ params }: EmbedProps) {
                       maxWidth: "86%",
                       borderRadius: "18px",
                       padding: "12px 16px",
-                      fontSize: "13.5px",
+                      fontSize: "14px",
                       lineHeight: 1.6,
-                      background: isUser ? "#0b0b0c" : "#f9fafb",
+                      background: isUser ? "#1a5c3a" : "#f9fafb",
                       color: isUser ? "#fff" : "#1a1a1a",
                       border: isUser ? "none" : "1px solid #f0f0f0",
                     }}>
@@ -333,7 +333,7 @@ export default function Embed({ params }: EmbedProps) {
                     border: "1px solid #f0f0f0",
                     borderRadius: "18px",
                     padding: "12px 16px",
-                    fontSize: "13.5px",
+                    fontSize: "14px",
                     color: "#888",
                   }}>
                     Antwort wird erstellt…
@@ -421,7 +421,7 @@ export default function Embed({ params }: EmbedProps) {
                   width: "40px",
                   height: "40px",
                   borderRadius: "50%",
-                  background: "#0b0b0c",
+                  background: "#1a5c3a",
                   border: "none",
                   cursor: "pointer",
                   display: "flex",
