@@ -105,8 +105,10 @@ export default function Sidebar({ role, tenantName }: Props) {
     : navItems;
 
   const initials = tenantName
-    ? tenantName.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
+    ? tenantName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()
     : "?";
+
+  const supportHref = `mailto:info@fusionaryai.de?subject=Support-Anfrage von ${tenantName ?? "Kunde"}`;
 
   return (
     <div style={{
@@ -137,7 +139,7 @@ export default function Sidebar({ role, tenantName }: Props) {
             fontSize: "9px",
             color: "#ccc",
             letterSpacing: "0.1em",
-            textTransform: "uppercase",
+            textTransform: "uppercase" as const,
             padding: "8px 8px 4px",
           }}>
             {group.section}
@@ -162,7 +164,7 @@ export default function Sidebar({ role, tenantName }: Props) {
                   border: "none",
                   cursor: "pointer",
                   width: "100%",
-                  textAlign: "left",
+                  textAlign: "left" as const,
                   transition: "all 0.15s",
                   marginBottom: "2px",
                 }}
@@ -231,6 +233,41 @@ export default function Sidebar({ role, tenantName }: Props) {
             </p>
           </div>
         </div>
+
+        <button
+          onClick={() => { window.location.href = supportHref; }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "6px 9px",
+            borderRadius: "6px",
+            fontSize: "11.5px",
+            color: "#bbb",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            width: "100%",
+            textAlign: "left" as const,
+            transition: "all 0.15s",
+            marginBottom: "2px",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "#f0f7ff";
+            e.currentTarget.style.color = "#5b53d8";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.color = "#bbb";
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M2 4h12v8a1 1 0 01-1 1H3a1 1 0 01-1-1V4z"/>
+            <path d="M2 4l6 5 6-5"/>
+          </svg>
+          Support kontaktieren
+        </button>
+
         <button
           onClick={async () => {
             await supabase.auth.signOut();
@@ -248,6 +285,7 @@ export default function Sidebar({ role, tenantName }: Props) {
             border: "none",
             cursor: "pointer",
             width: "100%",
+            textAlign: "left" as const,
             transition: "all 0.15s",
           }}
           onMouseEnter={(e) => {
