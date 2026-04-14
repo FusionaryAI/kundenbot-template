@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 type Message = {
   role: "user" | "assistant";
   text: string;
+  isTyping?: boolean;
 };
 
 type EmbedProps = {
@@ -31,6 +32,52 @@ function slugFromPathname(): string | null {
   return m?.[1] ? decodeURIComponent(m[1]) : null;
 }
 
+// Typing-Animation Hook
+function useTypewriter(text: string, enabled: boolean, speed = 18) {
+  const [displayed, setDisplayed] = useState("");
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setDisplayed(text);
+      setDone(true);
+      return;
+    }
+    setDisplayed("");
+    setDone(false);
+    let i = 0;
+    const interval = setInterval(() => {
+      i++;
+      setDisplayed(text.slice(0, i));
+      if (i >= text.length) {
+        clearInterval(interval);
+        setDone(true);
+      }
+    }, speed);
+    return () => clearInterval(interval);
+  }, [text, enabled, speed]);
+
+  return { displayed, done };
+}
+
+// Einzelne Assistenten-Nachricht mit Typing-Effekt
+function AssistantMessage({ text, animate }: { text: string; animate: boolean }) {
+  const { displayed } = useTypewriter(text, animate, 12);
+
+  return (
+    <Markdown
+      components={{
+        ul: ({ children }: any) => <ul style={{ marginLeft: "16px", listStyleType: "disc" }}>{children}</ul>,
+        ol: ({ children }: any) => <ol style={{ marginLeft: "16px", listStyleType: "decimal" }}>{children}</ol>,
+        li: ({ children }: any) => <li style={{ lineHeight: 1.6 }}>{children}</li>,
+        p: ({ children }: any) => <p style={{ marginBottom: "6px" }}>{children}</p>,
+      }}
+    >
+      {displayed || " "}
+    </Markdown>
+  );
+}
+
 export default function Embed({ params }: EmbedProps) {
   const [slugSafe, setSlugSafe] = useState<string>(() => params?.slug || "");
   useEffect(() => {
@@ -45,9 +92,18 @@ export default function Embed({ params }: EmbedProps) {
   const [isSending, setIsSending] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [welcomeLoaded, setWelcomeLoaded] = useState(false);
+  const [lastAssistantIndex, setLastAssistantIndex] = useState(-1);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
+  // Smooth-Scroll
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [messages, isSending]);
+
+  // Welcome Message laden
   useEffect(() => {
     async function loadWelcome() {
       const slug = params?.slug || slugFromPathname() || "";
@@ -65,26 +121,17 @@ export default function Embed({ params }: EmbedProps) {
         });
         const data = await res.json().catch(() => ({}));
         const welcome = data?.welcome_message?.trim();
-        setMessages([{
-          role: "assistant",
-          text: welcome || "Hallo! Wie kann ich Ihnen helfen?",
-        }]);
+        const welcomeText = welcome || "Hallo! Wie kann ich Ihnen helfen?";
+        setMessages([{ role: "assistant", text: welcomeText, isTyping: true }]);
+        setLastAssistantIndex(0);
       } catch {
-        setMessages([{
-          role: "assistant",
-          text: "Hallo! Wie kann ich Ihnen helfen?",
-        }]);
+        setMessages([{ role: "assistant", text: "Hallo! Wie kann ich Ihnen helfen?", isTyping: true }]);
+        setLastAssistantIndex(0);
       }
       setWelcomeLoaded(true);
     }
     loadWelcome();
   }, [params?.slug, welcomeLoaded]);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages, isSending, isOpen]);
 
   async function send(textOverride?: string) {
     const q = (textOverride ?? input).trim();
@@ -95,7 +142,7 @@ export default function Embed({ params }: EmbedProps) {
       setMessages((m) => [
         ...m,
         { role: "user", text: q },
-        { role: "assistant", text: "Konfigurationsfehler: Tenant-Slug fehlt." },
+        { role: "assistant", text: "Konfigurationsfehler: Tenant-Slug fehlt.", isTyping: false },
       ]);
       setInput("");
       return;
@@ -132,7 +179,11 @@ export default function Embed({ params }: EmbedProps) {
         const errMsg = typeof data?.error === "string" && data.error.trim()
           ? data.error
           : "API Fehler: Anfrage fehlgeschlagen.";
-        setMessages((m) => [...m, { role: "assistant", text: errMsg }]);
+        setMessages((m) => {
+          const next = [...m, { role: "assistant" as const, text: errMsg, isTyping: false }];
+          setLastAssistantIndex(next.length - 1);
+          return next;
+        });
         return;
       }
 
@@ -141,9 +192,17 @@ export default function Embed({ params }: EmbedProps) {
           ? data.text
           : "Entschuldigung, ich konnte gerade keine Antwort erzeugen.";
 
-      setMessages((m) => [...m, { role: "assistant", text: answer }]);
+      setMessages((m) => {
+        const next = [...m, { role: "assistant" as const, text: answer, isTyping: true }];
+        setLastAssistantIndex(next.length - 1);
+        return next;
+      });
     } catch {
-      setMessages((m) => [...m, { role: "assistant", text: "Technischer Fehler: Die Anfrage konnte nicht verarbeitet werden." }]);
+      setMessages((m) => {
+        const next = [...m, { role: "assistant" as const, text: "Technischer Fehler: Die Anfrage konnte nicht verarbeitet werden.", isTyping: false }];
+        setLastAssistantIndex(next.length - 1);
+        return next;
+      });
     } finally {
       setIsSending(false);
     }
@@ -272,6 +331,7 @@ export default function Embed({ params }: EmbedProps) {
                 gap: "12px",
                 minHeight: 0,
                 background: "#fff",
+                scrollBehavior: "smooth",
               }}
             >
               {messages.length === 0 && (
@@ -281,22 +341,39 @@ export default function Embed({ params }: EmbedProps) {
                   border: "1px solid #f0f0f0",
                   borderRadius: "18px",
                   padding: "12px 16px",
-                  fontSize: "13.5px",
-                  color: "#888",
                   display: "flex",
                   gap: "4px",
                   alignItems: "center",
                 }}>
-                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#ccc", display: "inline-block" }} />
-                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#ccc", display: "inline-block" }} />
-                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#ccc", display: "inline-block" }} />
+                  {[0, 0.2, 0.4].map((delay, i) => (
+                    <span
+                      key={i}
+                      style={{
+                        width: "6px",
+                        height: "6px",
+                        borderRadius: "50%",
+                        background: "#ccc",
+                        display: "inline-block",
+                        animation: `bounce 1.2s ${delay}s infinite`,
+                      }}
+                    />
+                  ))}
                 </div>
               )}
 
               {messages.map((m, i) => {
                 const isUser = m.role === "user";
+                const shouldAnimate = !isUser && i === lastAssistantIndex && m.isTyping === true;
+
                 return (
-                  <div key={i} style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      justifyContent: isUser ? "flex-end" : "flex-start",
+                      animation: "fadeSlideIn 0.25s ease forwards",
+                    }}
+                  >
                     <div style={{
                       maxWidth: "86%",
                       borderRadius: "18px",
@@ -310,16 +387,7 @@ export default function Embed({ params }: EmbedProps) {
                       {isUser ? (
                         <span style={{ whiteSpace: "pre-wrap" }}>{m.text}</span>
                       ) : (
-                        <Markdown
-                          components={{
-                            ul: ({ children }: any) => <ul style={{ marginLeft: "16px", listStyleType: "disc" }}>{children}</ul>,
-                            ol: ({ children }: any) => <ol style={{ marginLeft: "16px", listStyleType: "decimal" }}>{children}</ol>,
-                            li: ({ children }: any) => <li style={{ lineHeight: 1.6 }}>{children}</li>,
-                            p: ({ children }: any) => <p style={{ marginBottom: "6px" }}>{children}</p>,
-                          }}
-                        >
-                          {m.text}
-                        </Markdown>
+                        <AssistantMessage text={m.text} animate={shouldAnimate} />
                       )}
                     </div>
                   </div>
@@ -327,20 +395,49 @@ export default function Embed({ params }: EmbedProps) {
               })}
 
               {isSending && (
-                <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                <div style={{
+                  display: "flex",
+                  justifyContent: "flex-start",
+                  animation: "fadeSlideIn 0.25s ease forwards",
+                }}>
                   <div style={{
                     background: "#f9fafb",
                     border: "1px solid #f0f0f0",
                     borderRadius: "18px",
                     padding: "12px 16px",
-                    fontSize: "14px",
-                    color: "#888",
+                    display: "flex",
+                    gap: "4px",
+                    alignItems: "center",
                   }}>
-                    Antwort wird erstellt…
+                    {[0, 0.2, 0.4].map((delay, i) => (
+                      <span
+                        key={i}
+                        style={{
+                          width: "6px",
+                          height: "6px",
+                          borderRadius: "50%",
+                          background: "#ccc",
+                          display: "inline-block",
+                          animation: `bounce 1.2s ${delay}s infinite`,
+                        }}
+                      />
+                    ))}
                   </div>
                 </div>
               )}
             </div>
+
+            {/* CSS Animationen */}
+            <style>{`
+              @keyframes bounce {
+                0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+                40% { transform: translateY(-5px); opacity: 1; }
+              }
+              @keyframes fadeSlideIn {
+                from { opacity: 0; transform: translateY(8px); }
+                to { opacity: 1; transform: translateY(0); }
+              }
+            `}</style>
 
             {/* Quick Actions */}
             <div style={{
