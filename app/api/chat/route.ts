@@ -646,6 +646,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         text: buildCapabilityAnswer({ tenantName: tenant.name, medicalTenant }),
         welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
         from_kb: false,
         handoff,
       });
@@ -667,6 +668,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           text: MEDICAL_SAFETY_FALLBACK + "\n\nSoll ich Ihre Anfrage an das Team weiterleiten und eine Terminanfrage aufnehmen?",
           welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
           from_kb: false,
           handoff,
         });
@@ -674,6 +676,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         text: MEDICAL_SAFETY_FALLBACK,
         welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
         from_kb: false,
         handoff,
       });
@@ -693,6 +696,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           text: "Alles klar. Wobei kann ich Ihnen sonst helfen?",
           welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
           from_kb: false,
           handoff,
         });
@@ -703,6 +707,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           text: "Super. Wie ist Ihr Name?",
           welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
           from_kb: false,
           handoff,
         });
@@ -715,6 +720,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           text: "Alles klar. Wobei kann ich Ihnen sonst helfen?",
           welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
           from_kb: false,
           handoff,
         });
@@ -728,6 +734,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             text: "Danke. Bitte nennen Sie mir Ihren Namen (Vor- und Nachname).",
             welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
             from_kb: false,
             handoff,
           });
@@ -741,6 +748,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
             welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
             from_kb: false,
             handoff,
           });
@@ -752,6 +760,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             text: "Danke. Können Sie mir bitte noch Ihren Nachnamen nennen?",
             welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
             from_kb: false,
             handoff: { ...handoff, stage: "collect_name" },
           });
@@ -766,6 +775,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
             welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
             from_kb: false,
             handoff,
           });
@@ -773,6 +783,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           text: "Wie ist Ihr vollständiger Name? (Vor- und Nachname, z. B. Max Mustermann)",
           welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
           from_kb: false,
           handoff,
         });
@@ -788,6 +799,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
             welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
             from_kb: false,
             handoff,
           });
@@ -816,6 +828,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({
               text: "Alles klar. Wie lautet Ihre Telefonnummer?",
               welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
               from_kb: false,
               handoff,
             });
@@ -824,6 +837,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({
               text: "Alles klar. Wie lautet Ihre E-Mail-Adresse?",
               welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
               from_kb: false,
               handoff,
             });
@@ -831,6 +845,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             text: "Bitte senden Sie mir Ihre E-Mail-Adresse oder Telefonnummer (z. B. max@mail.de oder +49...).",
             welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
             from_kb: false,
             handoff,
           });
@@ -843,6 +858,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({
               text: settings.fallback_message,
               welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
               from_kb: false,
               handoff,
             });
@@ -871,6 +887,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             text: result.message || settings.lead_auto_reply || "Vielen Dank! Wir melden uns zeitnah.",
             welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
             from_kb: false,
             handoff,
           });
@@ -886,6 +903,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           text: ask,
           welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
           from_kb: false,
           handoff,
         });
@@ -910,6 +928,7 @@ export async function POST(req: NextRequest) {
               return NextResponse.json({
                 text: "Bitte schildern Sie kurz Ihr Anliegen.",
                 welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
                 from_kb: false,
                 handoff,
               });
@@ -931,6 +950,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           text: settings.fallback_message,
           welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
           from_kb: false,
           handoff,
         });
@@ -964,6 +984,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         text: result.message || settings.lead_auto_reply || "Vielen Dank! Wir melden uns zeitnah.",
         welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
         from_kb: false,
         handoff,
       });
@@ -987,6 +1008,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         text: offerText,
         welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
         from_kb: false,
         handoff,
       });
@@ -1044,6 +1066,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           text: "Dazu habe ich aktuell keine hinterlegten Informationen. Soll ich Ihre Frage an das Team weiterleiten, damit Sie eine verlässliche Antwort erhalten?",
           welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
           from_kb: false,
           handoff,
         });
@@ -1051,6 +1074,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         text: settings.fallback_message,
         welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
         from_kb: false,
         handoff,
       });
@@ -1065,6 +1089,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         text: "Ich habe dazu nur begrenzte Informationen hinterlegt. Soll ich Ihre Frage an das Team weiterleiten, damit Sie eine verlässliche Antwort erhalten?",
         welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
         from_kb: false,
         handoff,
       });
@@ -1092,6 +1117,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           text: offerText,
           welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
           from_kb: false,
           handoff,
         });
@@ -1107,6 +1133,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             text: "Das kann ich aktuell nicht verlässlich aus den hinterlegten Informationen beantworten. Soll ich Ihre Frage an das Team weiterleiten?",
             welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
             from_kb: false,
             handoff,
           });
@@ -1117,6 +1144,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             text: out,
             welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
             from_kb: true,
             handoff,
           });
@@ -1173,6 +1201,7 @@ WICHTIG:
     return NextResponse.json({
       text,
       welcome_message: settings.welcome_message,
+          tenant_name: tenant.name,
       from_kb: true,
       handoff,
     });

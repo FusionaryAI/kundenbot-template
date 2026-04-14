@@ -32,7 +32,6 @@ function slugFromPathname(): string | null {
   return m?.[1] ? decodeURIComponent(m[1]) : null;
 }
 
-// Typing-Animation Hook
 function useTypewriter(text: string, enabled: boolean, speed = 18) {
   const [displayed, setDisplayed] = useState("");
   const [done, setDone] = useState(false);
@@ -60,7 +59,6 @@ function useTypewriter(text: string, enabled: boolean, speed = 18) {
   return { displayed, done };
 }
 
-// Einzelne Assistenten-Nachricht mit Typing-Effekt
 function AssistantMessage({ text, animate }: { text: string; animate: boolean }) {
   const { displayed } = useTypewriter(text, animate, 12);
 
@@ -93,17 +91,16 @@ export default function Embed({ params }: EmbedProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [welcomeLoaded, setWelcomeLoaded] = useState(false);
   const [lastAssistantIndex, setLastAssistantIndex] = useState(-1);
+  const [tenantName, setTenantName] = useState<string>("");
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // Smooth-Scroll
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, isSending]);
 
-  // Welcome Message laden
   useEffect(() => {
     async function loadWelcome() {
       const slug = params?.slug || slugFromPathname() || "";
@@ -121,11 +118,19 @@ export default function Embed({ params }: EmbedProps) {
         });
         const data = await res.json().catch(() => ({}));
         const welcome = data?.welcome_message?.trim();
-        const welcomeText = welcome || "Hallo! Wie kann ich Ihnen helfen?";
-        setMessages([{ role: "assistant", text: welcomeText, isTyping: true }]);
+        if (data?.tenant_name) setTenantName(data.tenant_name);
+        setMessages([{
+          role: "assistant",
+          text: welcome || "Hallo! Wie kann ich Ihnen helfen?",
+          isTyping: true,
+        }]);
         setLastAssistantIndex(0);
       } catch {
-        setMessages([{ role: "assistant", text: "Hallo! Wie kann ich Ihnen helfen?", isTyping: true }]);
+        setMessages([{
+          role: "assistant",
+          text: "Hallo! Wie kann ich Ihnen helfen?",
+          isTyping: true,
+        }]);
         setLastAssistantIndex(0);
       }
       setWelcomeLoaded(true);
@@ -293,7 +298,7 @@ export default function Embed({ params }: EmbedProps) {
                   </p>
                   <p style={{ fontSize: "11px", color: "#10b981", display: "flex", alignItems: "center", gap: "4px" }}>
                     <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
-                    Online · {tenantLabel}
+                    Online · {tenantName || tenantLabel}
                   </p>
                 </div>
               </div>
@@ -427,7 +432,6 @@ export default function Embed({ params }: EmbedProps) {
               )}
             </div>
 
-            {/* CSS Animationen */}
             <style>{`
               @keyframes bounce {
                 0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
