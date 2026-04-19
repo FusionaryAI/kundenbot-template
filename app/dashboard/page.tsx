@@ -28,6 +28,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
   const [kbCount, setKbCount] = useState(0);
+  const [thisMonthCount, setThisMonthCount] = useState(0);
+  const [prevMonthCount, setPrevMonthCount] = useState(0);
   const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
@@ -57,23 +59,42 @@ export default function DashboardPage() {
       }
 
       if (tenantId) {
-        const { data: leadsData } = await supabase
-          .from("leads")
-          .select("id, name, email, phone, message, type, created_at")
-          .eq("tenant_id", tenantId)
-          .order("created_at", { ascending: false })
-          .limit(5);
-        setLeads(leadsData ?? []);
+        const now = new Date();
+        const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
-        const { count } = await supabase
-          .from("knowledge_items")
-          .select("*", { count: "exact", head: true })
-          .eq("tenant_id", tenantId);
-        setKbCount(count ?? 0);
+        const [leadsResult, kbResult, thisMonthResult, prevMonthResult] = await Promise.all([
+          supabase
+            .from("leads")
+            .select("id, name, email, phone, message, type, created_at")
+            .eq("tenant_id", tenantId)
+            .order("created_at", { ascending: false })
+            .limit(5),
+          supabase
+            .from("knowledge_items")
+            .select("*", { count: "exact", head: true })
+            .eq("tenant_id", tenantId),
+          supabase
+            .from("leads")
+            .select("*", { count: "exact", head: true })
+            .eq("tenant_id", tenantId)
+            .gte("created_at", thisMonthStart),
+          supabase
+            .from("leads")
+            .select("*", { count: "exact", head: true })
+            .eq("tenant_id", tenantId)
+            .gte("created_at", prevMonthStart)
+            .lt("created_at", thisMonthStart),
+        ]);
+
+        setLeads(leadsResult.data ?? []);
+        setKbCount(kbResult.count ?? 0);
+        setThisMonthCount(thisMonthResult.count ?? 0);
+        setPrevMonthCount(prevMonthResult.count ?? 0);
       }
 
       setLoading(false);
-      setTimeout(() => setRevealed(true), 50);
+      requestAnimationFrame(() => requestAnimationFrame(() => setRevealed(true)));
     }
     load();
   }, [router]);
@@ -99,6 +120,17 @@ export default function DashboardPage() {
 
   const appointmentCount = leads.filter(l => l.type === "appointment").length;
 
+  function trendLabel(current: number, prev: number): { label: string; color: string } | null {
+    if (prev === 0 && current === 0) return null;
+    if (prev === 0) return { label: `+${current} ↑`, color: "#3a6b10" };
+    const delta = current - prev;
+    if (delta === 0) return { label: "±0", color: "#aaa" };
+    if (delta > 0) return { label: `+${delta} ↑`, color: "#3a6b10" };
+    return { label: `${delta} ↓`, color: "#c0392b" };
+  }
+
+  const leadTrend = trendLabel(thisMonthCount, prevMonthCount);
+
   const revealStyle = (delay: number) => ({
     opacity: revealed ? 1 : 0,
     transform: revealed ? "translateY(0)" : "translateY(10px)",
@@ -112,6 +144,30 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  const stats = [
+    {
+      label: "Leads diesen Monat",
+      value: thisMonthCount,
+      sub: leadTrend,
+      icon: "📊",
+      bg: "#f0eeff",
+    },
+    {
+      label: "Terminanfragen",
+      value: appointmentCount,
+      sub: null,
+      icon: "📅",
+      bg: "#eef4ff",
+    },
+    {
+      label: "Wissensbasis",
+      value: kbCount,
+      sub: null,
+      icon: "📚",
+      bg: "#edf7e4",
+    },
+  ];
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#fafafa" }}>
@@ -161,11 +217,7 @@ export default function DashboardPage() {
         <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "20px" }}>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: "10px" }}>
-            {[
-              { label: "Leads gesamt", value: leads.length, sub: "diesen Monat", icon: "📊", bg: "#f0eeff" },
-              { label: "Terminanfragen", value: appointmentCount, sub: "offen", icon: "📅", bg: "#eef4ff" },
-              { label: "Wissensbasis", value: kbCount, sub: "Einträge", icon: "📚", bg: "#edf7e4" },
-            ].map((stat, i) => (
+            {stats.map((stat, i) => (
               <div
                 key={stat.label}
                 style={{
@@ -194,9 +246,16 @@ export default function DashboardPage() {
                 }}>
                   {stat.icon}
                 </div>
-                <p style={{ fontSize: "22px", fontWeight: 700, color: "#0a0a0a", letterSpacing: "-0.5px" }}>
-                  {stat.value}
-                </p>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+                  <p style={{ fontSize: "22px", fontWeight: 700, color: "#0a0a0a", letterSpacing: "-0.5px" }}>
+                    {stat.value}
+                  </p>
+                  {stat.sub && (
+                    <span style={{ fontSize: "11px", fontWeight: 500, color: stat.sub.color }}>
+                      {stat.sub.label}
+                    </span>
+                  )}
+                </div>
                 <p style={{ fontSize: "11px", color: "#aaa", marginTop: "2px" }}>{stat.label}</p>
               </div>
             ))}
