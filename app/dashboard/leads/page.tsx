@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
+import { useAuth } from "@/hooks/useAuth";
 
 type Lead = {
   id: string;
@@ -16,64 +17,31 @@ type Lead = {
   created_at: string;
 };
 
-type Tenant = {
-  id: string;
-  name: string;
-  slug: string;
-};
-
 export default function LeadsPage() {
   const router = useRouter();
-  const [tenant, setTenant] = useState<Tenant | null>(null);
+  const { tenant, role, loading: authLoading } = useAuth();
+
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<string | null>(null);
+  const [dataLoading, setDataLoading] = useState(true);
   const [filter, setFilter] = useState<string>("alle");
   const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
-    async function load() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push("/login"); return; }
-
-      const { data: roleData } = await supabase
-        .from("user_roles")
-        .select("role, tenant_id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (!roleData) { router.push("/login"); return; }
-      setRole(roleData.role);
-
-      let tenantId = roleData.tenant_id;
-
-      if (roleData.role === "super_admin") {
-        const { data: firstTenant } = await supabase
-          .from("tenants").select("*").limit(1).single();
-        if (firstTenant) { setTenant(firstTenant); tenantId = firstTenant.id; }
-      }
-
-      if (tenantId) {
-        const [tenantResult, leadsResult] = await Promise.all([
-          roleData.role !== "super_admin"
-            ? supabase.from("tenants").select("*").eq("id", tenantId).single()
-            : Promise.resolve({ data: null }),
-          supabase
-            .from("leads")
-            .select("id, name, email, phone, message, type, status, created_at")
-            .eq("tenant_id", tenantId)
-            .order("created_at", { ascending: false }),
-        ]);
-
-        if (tenantResult.data) setTenant(tenantResult.data);
-        setLeads(leadsResult.data ?? []);
-      }
-
-      setLoading(false);
+    if (!tenant?.id) return;
+    async function loadData() {
+      const { data: leadsData } = await supabase
+        .from("leads")
+        .select("id, name, email, phone, message, type, status, created_at")
+        .eq("tenant_id", tenant!.id)
+        .order("created_at", { ascending: false });
+      setLeads(leadsData ?? []);
+      setDataLoading(false);
       requestAnimationFrame(() => requestAnimationFrame(() => setRevealed(true)));
     }
-    load();
-  }, [router]);
+    loadData();
+  }, [tenant?.id]);
+
+  const loading = authLoading || dataLoading;
 
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString("de-DE", {

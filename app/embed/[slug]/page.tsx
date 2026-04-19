@@ -275,13 +275,17 @@ export default function Embed({ params }: EmbedProps) {
                   width: "36px",
                   height: "36px",
                   borderRadius: "50%",
-                  background: "#f0fdf4",
-                  border: "1px solid #d1fae5",
+                  background: "#1a5c3a",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  fontSize: "15px",
+                  fontWeight: 700,
+                  color: "#fff",
+                  letterSpacing: "-0.5px",
+                  flexShrink: 0,
                 }}>
-                  <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
+                  {tenantName ? tenantName[0].toUpperCase() : "K"}
                 </div>
                 <div>
                   <p style={{ fontSize: "14px", fontWeight: 600, color: "#0a0a0a", letterSpacing: "-0.2px" }}>

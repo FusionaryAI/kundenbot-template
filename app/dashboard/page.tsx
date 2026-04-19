@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
+import { useAuth } from "@/hooks/useAuth";
 
 type Lead = {
   id: string;
@@ -15,89 +16,65 @@ type Lead = {
   created_at: string;
 };
 
-type Tenant = {
-  id: string;
-  name: string;
-  slug: string;
-};
-
 export default function DashboardPage() {
   const router = useRouter();
-  const [tenant, setTenant] = useState<Tenant | null>(null);
+  const { tenant, role, loading: authLoading } = useAuth();
+
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<string | null>(null);
   const [kbCount, setKbCount] = useState(0);
   const [thisMonthCount, setThisMonthCount] = useState(0);
   const [prevMonthCount, setPrevMonthCount] = useState(0);
+  const [dataLoading, setDataLoading] = useState(true);
   const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [origin, setOrigin] = useState("");
 
   useEffect(() => {
-    async function load() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push("/login"); return; }
+    setOrigin(window.location.origin);
+  }, []);
 
-      const { data: roleData } = await supabase
-        .from("user_roles")
-        .select("role, tenant_id")
-        .eq("user_id", user.id)
-        .single();
+  useEffect(() => {
+    if (!tenant?.id) return;
+    async function loadData() {
+      const now = new Date();
+      const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
-      if (!roleData) { router.push("/login"); return; }
-      setRole(roleData.role);
+      const [leadsResult, kbResult, thisMonthResult, prevMonthResult] = await Promise.all([
+        supabase
+          .from("leads")
+          .select("id, name, email, phone, message, type, created_at")
+          .eq("tenant_id", tenant.id)
+          .order("created_at", { ascending: false })
+          .limit(5),
+        supabase
+          .from("knowledge_items")
+          .select("*", { count: "exact", head: true })
+          .eq("tenant_id", tenant.id),
+        supabase
+          .from("leads")
+          .select("*", { count: "exact", head: true })
+          .eq("tenant_id", tenant.id)
+          .gte("created_at", thisMonthStart),
+        supabase
+          .from("leads")
+          .select("*", { count: "exact", head: true })
+          .eq("tenant_id", tenant.id)
+          .gte("created_at", prevMonthStart)
+          .lt("created_at", thisMonthStart),
+      ]);
 
-      let tenantId = roleData.tenant_id;
-
-      if (roleData.role === "super_admin") {
-        const { data: firstTenant } = await supabase
-          .from("tenants").select("*").limit(1).single();
-        if (firstTenant) { setTenant(firstTenant); tenantId = firstTenant.id; }
-      } else {
-        const { data: tenantData } = await supabase
-          .from("tenants").select("*").eq("id", tenantId).single();
-        if (tenantData) setTenant(tenantData);
-      }
-
-      if (tenantId) {
-        const now = new Date();
-        const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-        const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
-
-        const [leadsResult, kbResult, thisMonthResult, prevMonthResult] = await Promise.all([
-          supabase
-            .from("leads")
-            .select("id, name, email, phone, message, type, created_at")
-            .eq("tenant_id", tenantId)
-            .order("created_at", { ascending: false })
-            .limit(5),
-          supabase
-            .from("knowledge_items")
-            .select("*", { count: "exact", head: true })
-            .eq("tenant_id", tenantId),
-          supabase
-            .from("leads")
-            .select("*", { count: "exact", head: true })
-            .eq("tenant_id", tenantId)
-            .gte("created_at", thisMonthStart),
-          supabase
-            .from("leads")
-            .select("*", { count: "exact", head: true })
-            .eq("tenant_id", tenantId)
-            .gte("created_at", prevMonthStart)
-            .lt("created_at", thisMonthStart),
-        ]);
-
-        setLeads(leadsResult.data ?? []);
-        setKbCount(kbResult.count ?? 0);
-        setThisMonthCount(thisMonthResult.count ?? 0);
-        setPrevMonthCount(prevMonthResult.count ?? 0);
-      }
-
-      setLoading(false);
+      setLeads(leadsResult.data ?? []);
+      setKbCount(kbResult.count ?? 0);
+      setThisMonthCount(thisMonthResult.count ?? 0);
+      setPrevMonthCount(prevMonthResult.count ?? 0);
+      setDataLoading(false);
       requestAnimationFrame(() => requestAnimationFrame(() => setRevealed(true)));
     }
-    load();
-  }, [router]);
+    loadData();
+  }, [tenant?.id]);
+
+  const loading = authLoading || dataLoading;
 
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString("de-DE", {
@@ -130,6 +107,13 @@ export default function DashboardPage() {
   }
 
   const leadTrend = trendLabel(thisMonthCount, prevMonthCount);
+  const embedSnippet = `<script src="${origin}/widget.js" data-slug="${tenant?.slug}" data-origin="${origin}"></script>`;
+
+  function copyEmbed() {
+    navigator.clipboard.writeText(embedSnippet);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   const revealStyle = (delay: number) => ({
     opacity: revealed ? 1 : 0,
@@ -146,27 +130,9 @@ export default function DashboardPage() {
   }
 
   const stats = [
-    {
-      label: "Leads diesen Monat",
-      value: thisMonthCount,
-      sub: leadTrend,
-      icon: "📊",
-      bg: "#f0eeff",
-    },
-    {
-      label: "Terminanfragen",
-      value: appointmentCount,
-      sub: null,
-      icon: "📅",
-      bg: "#eef4ff",
-    },
-    {
-      label: "Wissensbasis",
-      value: kbCount,
-      sub: null,
-      icon: "📚",
-      bg: "#edf7e4",
-    },
+    { label: "Leads diesen Monat", value: thisMonthCount, trend: leadTrend, icon: "📊", bg: "#f0eeff" },
+    { label: "Terminanfragen", value: appointmentCount, trend: null, icon: "📅", bg: "#eef4ff" },
+    { label: "Wissensbasis", value: kbCount, trend: null, icon: "📚", bg: "#edf7e4" },
   ];
 
   return (
@@ -216,6 +182,7 @@ export default function DashboardPage() {
 
         <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "20px" }}>
 
+          {/* Stat Cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: "10px" }}>
             {stats.map((stat, i) => (
               <div
@@ -250,9 +217,9 @@ export default function DashboardPage() {
                   <p style={{ fontSize: "22px", fontWeight: 700, color: "#0a0a0a", letterSpacing: "-0.5px" }}>
                     {stat.value}
                   </p>
-                  {stat.sub && (
-                    <span style={{ fontSize: "11px", fontWeight: 500, color: stat.sub.color }}>
-                      {stat.sub.label}
+                  {stat.trend && (
+                    <span style={{ fontSize: "11px", fontWeight: 500, color: stat.trend.color }}>
+                      {stat.trend.label}
                     </span>
                   )}
                 </div>
@@ -261,6 +228,7 @@ export default function DashboardPage() {
             ))}
           </div>
 
+          {/* Letzte Leads */}
           <div style={revealStyle(0.35)}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
               <p style={{ fontSize: "12px", fontWeight: 600, color: "#333" }}>Letzte Leads</p>
@@ -273,8 +241,38 @@ export default function DashboardPage() {
             </div>
 
             {leads.length === 0 ? (
-              <div style={{ background: "#fff", border: "1px solid #efefed", borderRadius: "10px", padding: "32px", textAlign: "center" }}>
-                <p style={{ fontSize: "13px", color: "#bbb" }}>Noch keine Leads vorhanden.</p>
+              <div style={{
+                background: "#fff", border: "1px solid #efefed",
+                borderRadius: "12px", padding: "40px 32px", textAlign: "center",
+              }}>
+                <p style={{ fontSize: "15px", fontWeight: 600, color: "#0a0a0a", marginBottom: "6px" }}>
+                  Dein Bot ist bereit
+                </p>
+                <p style={{ fontSize: "13px", color: "#bbb", marginBottom: "20px" }}>
+                  Noch keine Leads — baue die Wissensbasis aus oder teste den Bot direkt.
+                </p>
+                <div style={{ display: "flex", gap: "8px", justifyContent: "center", flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => router.push("/dashboard/knowledge")}
+                    style={{
+                      background: "#111", color: "#fff", border: "none",
+                      borderRadius: "8px", padding: "9px 16px", fontSize: "12.5px",
+                      fontWeight: 500, cursor: "pointer",
+                    }}
+                  >
+                    Wissensbasis aufbauen →
+                  </button>
+                  <button
+                    onClick={() => tenant && window.open(`/embed/${tenant.slug}`, "_blank")}
+                    style={{
+                      background: "#fff", color: "#555", border: "1px solid #efefed",
+                      borderRadius: "8px", padding: "9px 16px", fontSize: "12.5px",
+                      fontWeight: 500, cursor: "pointer",
+                    }}
+                  >
+                    Bot testen →
+                  </button>
+                </div>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
@@ -325,6 +323,53 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+
+          {/* Embed Code */}
+          {tenant?.slug && (
+            <div style={{
+              background: "#fff", border: "1px solid #efefed",
+              borderRadius: "10px", padding: "16px 20px",
+              ...revealStyle(0.45),
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+                <div>
+                  <p style={{ fontSize: "12px", fontWeight: 600, color: "#333" }}>Bot einbinden</p>
+                  <p style={{ fontSize: "11px", color: "#bbb", marginTop: "2px" }}>
+                    Diesen Code in deine Website einfügen
+                  </p>
+                </div>
+                <button
+                  onClick={copyEmbed}
+                  style={{
+                    background: copied ? "#edf5e4" : "#f5f5f5",
+                    color: copied ? "#3a6b10" : "#555",
+                    border: `1px solid ${copied ? "#c8e0a0" : "#efefed"}`,
+                    borderRadius: "7px",
+                    padding: "6px 14px",
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    flexShrink: 0,
+                  }}
+                >
+                  {copied ? "✓ Kopiert" : "Code kopieren"}
+                </button>
+              </div>
+              <div style={{
+                background: "#0f0f0f",
+                borderRadius: "7px",
+                padding: "12px 14px",
+                fontFamily: "monospace",
+                fontSize: "11.5px",
+                color: "#7dd3fc",
+                overflowX: "auto",
+                whiteSpace: "nowrap",
+              }}>
+                {embedSnippet}
+              </div>
+            </div>
+          )}
 
         </div>
       </div>

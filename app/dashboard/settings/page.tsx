@@ -4,18 +4,13 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
-
-type Tenant = {
-  id: string;
-  name: string;
-  slug: string;
-};
+import { useAuth } from "@/hooks/useAuth";
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [role, setRole] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { tenant, role, loading: authLoading } = useAuth();
+
+  const [dataLoading, setDataLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [revealed, setRevealed] = useState(false);
@@ -25,50 +20,26 @@ export default function SettingsPage() {
   const [pipedriveKey, setPipedriveKey] = useState("");
 
   useEffect(() => {
-    async function load() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push("/login"); return; }
-
-      const { data: roleData } = await supabase
-        .from("user_roles")
-        .select("role, tenant_id")
-        .eq("user_id", user.id)
+    if (!tenant?.id) return;
+    async function loadData() {
+      const { data: settings } = await supabase
+        .from("tenant_settings")
+        .select("slack_webhook_url, hubspot_api_key, pipedrive_api_key")
+        .eq("tenant_id", tenant!.id)
         .single();
 
-      if (!roleData) { router.push("/login"); return; }
-      setRole(roleData.role);
-
-      let tenantId = roleData.tenant_id;
-
-      if (roleData.role === "super_admin") {
-        const { data: firstTenant } = await supabase
-          .from("tenants").select("*").limit(1).single();
-        if (firstTenant) { setTenant(firstTenant); tenantId = firstTenant.id; }
-      } else {
-        const { data: tenantData } = await supabase
-          .from("tenants").select("*").eq("id", tenantId).single();
-        if (tenantData) setTenant(tenantData);
+      if (settings) {
+        setSlackWebhook(settings.slack_webhook_url ?? "");
+        setHubspotKey(settings.hubspot_api_key ?? "");
+        setPipedriveKey(settings.pipedrive_api_key ?? "");
       }
-
-      if (tenantId) {
-        const { data: settings } = await supabase
-          .from("tenant_settings")
-          .select("slack_webhook_url, hubspot_api_key, pipedrive_api_key")
-          .eq("tenant_id", tenantId)
-          .single();
-
-        if (settings) {
-          setSlackWebhook(settings.slack_webhook_url ?? "");
-          setHubspotKey(settings.hubspot_api_key ?? "");
-          setPipedriveKey(settings.pipedrive_api_key ?? "");
-        }
-      }
-
-      setLoading(false);
-      setTimeout(() => setRevealed(true), 50);
+      setDataLoading(false);
+      requestAnimationFrame(() => requestAnimationFrame(() => setRevealed(true)));
     }
-    load();
-  }, [router]);
+    loadData();
+  }, [tenant?.id]);
+
+  const loading = authLoading || dataLoading;
 
   async function handleSave() {
     if (!tenant) return;
