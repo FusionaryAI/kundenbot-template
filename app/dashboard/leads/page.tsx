@@ -51,23 +51,26 @@ export default function LeadsPage() {
         const { data: firstTenant } = await supabase
           .from("tenants").select("*").limit(1).single();
         if (firstTenant) { setTenant(firstTenant); tenantId = firstTenant.id; }
-      } else {
-        const { data: tenantData } = await supabase
-          .from("tenants").select("*").eq("id", tenantId).single();
-        if (tenantData) setTenant(tenantData);
       }
 
       if (tenantId) {
-        const { data: leadsData } = await supabase
-          .from("leads")
-          .select("id, name, email, phone, message, type, status, created_at")
-          .eq("tenant_id", tenantId)
-          .order("created_at", { ascending: false });
-        setLeads(leadsData ?? []);
+        const [tenantResult, leadsResult] = await Promise.all([
+          roleData.role !== "super_admin"
+            ? supabase.from("tenants").select("*").eq("id", tenantId).single()
+            : Promise.resolve({ data: null }),
+          supabase
+            .from("leads")
+            .select("id, name, email, phone, message, type, status, created_at")
+            .eq("tenant_id", tenantId)
+            .order("created_at", { ascending: false }),
+        ]);
+
+        if (tenantResult.data) setTenant(tenantResult.data);
+        setLeads(leadsResult.data ?? []);
       }
 
       setLoading(false);
-      setTimeout(() => setRevealed(true), 50);
+      requestAnimationFrame(() => requestAnimationFrame(() => setRevealed(true)));
     }
     load();
   }, [router]);

@@ -1,7 +1,7 @@
 // deploy-test
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
 
 type Message = {
@@ -13,16 +13,6 @@ type Message = {
 type EmbedProps = {
   params: { slug: string };
 };
-
-const TENANT_LABELS: Record<string, string> = {
-  "hausarzt-painten": "Arztpraxis",
-  "muster-demo": "Beispielkunde",
-};
-
-function getTenantLabel(slug?: string) {
-  if (!slug) return "Kunde";
-  return TENANT_LABELS[slug] ?? "Kunde";
-}
 
 const Markdown = ReactMarkdown as any;
 
@@ -59,7 +49,13 @@ function useTypewriter(text: string, enabled: boolean, speed = 18) {
   return { displayed, done };
 }
 
-function AssistantMessage({ text, animate }: { text: string; animate: boolean }) {
+const AssistantMessage = memo(function AssistantMessage({
+  text,
+  animate,
+}: {
+  text: string;
+  animate: boolean;
+}) {
   const { displayed } = useTypewriter(text, animate, 12);
 
   return (
@@ -74,7 +70,13 @@ function AssistantMessage({ text, animate }: { text: string; animate: boolean })
       {displayed || " "}
     </Markdown>
   );
-}
+});
+
+const defaultQuickActions = [
+  { label: "Was kann der Assistent?", text: "Was kannst du grundsätzlich für mich tun?" },
+  { label: "Kontakt aufnehmen", text: "Wie kann ich euch kontaktieren?" },
+  { label: "Öffnungszeiten", text: "Wie sind die Öffnungszeiten?" },
+];
 
 export default function Embed({ params }: EmbedProps) {
   const [slugSafe, setSlugSafe] = useState<string>(() => params?.slug || "");
@@ -83,8 +85,6 @@ export default function Embed({ params }: EmbedProps) {
     setSlugSafe(s);
   }, [params?.slug]);
 
-  const tenantLabel = useMemo(() => getTenantLabel(slugSafe), [slugSafe]);
-
   const [isOpen, setIsOpen] = useState(true);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -92,8 +92,11 @@ export default function Embed({ params }: EmbedProps) {
   const [welcomeLoaded, setWelcomeLoaded] = useState(false);
   const [lastAssistantIndex, setLastAssistantIndex] = useState(-1);
   const [tenantName, setTenantName] = useState<string>("");
+  const [quickActionsVisible, setQuickActionsVisible] = useState(true);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -108,20 +111,13 @@ export default function Embed({ params }: EmbedProps) {
 
       try {
         const origin = typeof window !== "undefined" ? window.location.origin : "";
-        const res = await fetch(`${origin}/api/chat`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-tenant-slug": slug,
-          },
-          body: JSON.stringify({ slug, message: "Hallo" }),
-        });
+        const res = await fetch(`${origin}/api/widget/${encodeURIComponent(slug)}`);
         const data = await res.json().catch(() => ({}));
-        const welcome = data?.welcome_message?.trim();
+
         if (data?.tenant_name) setTenantName(data.tenant_name);
         setMessages([{
           role: "assistant",
-          text: welcome || "Hallo! Wie kann ich Ihnen helfen?",
+          text: data?.welcome_message?.trim() || "Hallo! Wie kann ich Ihnen helfen?",
           isTyping: true,
         }]);
         setLastAssistantIndex(0);
@@ -138,7 +134,7 @@ export default function Embed({ params }: EmbedProps) {
     loadWelcome();
   }, [params?.slug, welcomeLoaded]);
 
-  async function send(textOverride?: string) {
+  const send = useCallback(async (textOverride?: string) => {
     const q = (textOverride ?? input).trim();
     if (!q || isSending) return;
 
@@ -154,6 +150,7 @@ export default function Embed({ params }: EmbedProps) {
     }
 
     setInput("");
+    setQuickActionsVisible(false);
     setMessages((m) => [...m, { role: "user", text: q }]);
     setIsSending(true);
 
@@ -172,7 +169,7 @@ export default function Embed({ params }: EmbedProps) {
         body: JSON.stringify({
           slug,
           message: q,
-          messages: messages
+          messages: messagesRef.current
             .slice(-6)
             .map((m) => ({ role: m.role, content: m.text })),
         }),
@@ -211,20 +208,14 @@ export default function Embed({ params }: EmbedProps) {
     } finally {
       setIsSending(false);
     }
-  }
+  }, [input, isSending, slugSafe]);
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
       send();
     }
-  }
-
-  const quickActions = [
-    { label: "Was kann der Assistent?", text: "Was kannst du grundsätzlich für mich tun?" },
-    { label: "Kontakt aufnehmen", text: "Wie kann ich euch kontaktieren?" },
-    { label: "Öffnungszeiten", text: "Wie sind die Öffnungszeiten?" },
-  ];
+  }, [send]);
 
   return (
     <main style={{ height: "100%", width: "100%", background: "transparent" }}>
@@ -315,7 +306,7 @@ export default function Embed({ params }: EmbedProps) {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  color: "#888",
+                  color: "#555",
                   fontSize: "16px",
                   lineHeight: 1,
                 }}
@@ -443,46 +434,49 @@ export default function Embed({ params }: EmbedProps) {
               }
             `}</style>
 
-            {/* Quick Actions */}
-            <div style={{
-              padding: "10px 16px 0",
-              display: "flex",
-              gap: "6px",
-              flexWrap: "wrap",
-              flexShrink: 0,
-              background: "#fff",
-            }}>
-              {quickActions.map((a) => (
-                <button
-                  key={a.label}
-                  type="button"
-                  onClick={() => send(a.text)}
-                  style={{
-                    background: "#f9fafb",
-                    border: "1px solid #efefef",
-                    borderRadius: "100px",
-                    padding: "6px 12px",
-                    fontSize: "11.5px",
-                    color: "#555",
-                    cursor: "pointer",
-                    transition: "all 0.15s",
-                    whiteSpace: "nowrap",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "#f0fdf4";
-                    e.currentTarget.style.borderColor = "#d1fae5";
-                    e.currentTarget.style.color = "#065f46";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "#f9fafb";
-                    e.currentTarget.style.borderColor = "#efefef";
-                    e.currentTarget.style.color = "#555";
-                  }}
-                >
-                  {a.label}
-                </button>
-              ))}
-            </div>
+            {/* Quick Actions — nur vor dem ersten User-Input */}
+            {quickActionsVisible && (
+              <div style={{
+                padding: "10px 16px 0",
+                display: "flex",
+                gap: "6px",
+                flexWrap: "wrap",
+                flexShrink: 0,
+                background: "#fff",
+                borderTop: "1px solid #f5f5f5",
+              }}>
+                {defaultQuickActions.map((a) => (
+                  <button
+                    key={a.label}
+                    type="button"
+                    onClick={() => send(a.text)}
+                    style={{
+                      background: "#f9fafb",
+                      border: "1px solid #efefef",
+                      borderRadius: "100px",
+                      padding: "6px 12px",
+                      fontSize: "11.5px",
+                      color: "#555",
+                      cursor: "pointer",
+                      transition: "all 0.15s",
+                      whiteSpace: "nowrap",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "#f0fdf4";
+                      e.currentTarget.style.borderColor = "#d1fae5";
+                      e.currentTarget.style.color = "#065f46";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "#f9fafb";
+                      e.currentTarget.style.borderColor = "#efefef";
+                      e.currentTarget.style.color = "#555";
+                    }}
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Input */}
             <div style={{
