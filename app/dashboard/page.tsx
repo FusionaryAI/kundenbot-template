@@ -35,6 +35,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!tenant?.id) return;
+    const tenantId = tenant.id;
     async function loadData() {
       const now = new Date();
       const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -44,22 +45,22 @@ export default function DashboardPage() {
         supabase
           .from("leads")
           .select("id, name, email, phone, message, type, created_at")
-          .eq("tenant_id", tenant.id)
+          .eq("tenant_id", tenantId)
           .order("created_at", { ascending: false })
           .limit(5),
         supabase
           .from("knowledge_items")
           .select("*", { count: "exact", head: true })
-          .eq("tenant_id", tenant.id),
+          .eq("tenant_id", tenantId),
         supabase
           .from("leads")
           .select("*", { count: "exact", head: true })
-          .eq("tenant_id", tenant.id)
+          .eq("tenant_id", tenantId)
           .gte("created_at", thisMonthStart),
         supabase
           .from("leads")
           .select("*", { count: "exact", head: true })
-          .eq("tenant_id", tenant.id)
+          .eq("tenant_id", tenantId)
           .gte("created_at", prevMonthStart)
           .lt("created_at", thisMonthStart),
       ]);
