@@ -112,12 +112,12 @@ export default function Sidebar({ role, tenantName }: Props) {
 
   return (
     <div style={{
-      width: "210px",
+      width: "240px",
       background: "#fff",
       borderRight: "1px solid #efefed",
       display: "flex",
       flexDirection: "column",
-      padding: "18px 10px",
+      padding: "18px 12px",
       flexShrink: 0,
       minHeight: "100vh",
     }}>
@@ -136,11 +136,12 @@ export default function Sidebar({ role, tenantName }: Props) {
       {allItems.map((group) => (
         <div key={group.section} style={{ marginBottom: "4px" }}>
           <p style={{
-            fontSize: "9px",
-            color: "#ccc",
-            letterSpacing: "0.1em",
+            fontSize: "10.5px",
+            color: "#bbb",
+            letterSpacing: "0.06em",
             textTransform: "uppercase" as const,
             padding: "8px 8px 4px",
+            fontWeight: 500,
           }}>
             {group.section}
           </p>
@@ -158,7 +159,7 @@ export default function Sidebar({ role, tenantName }: Props) {
                   padding: "7px 9px",
                   borderRadius: "7px",
                   fontSize: "12.5px",
-                  color: isActive ? "#5b53d8" : "#aaa",
+                  color: isActive ? "#5b53d8" : "#666",
                   background: isActive ? "#f5f4ff" : "transparent",
                   fontWeight: isActive ? 500 : 400,
                   border: "none",
@@ -177,7 +178,7 @@ export default function Sidebar({ role, tenantName }: Props) {
                 onMouseLeave={(e) => {
                   if (!isActive) {
                     e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.color = "#aaa";
+                    e.currentTarget.style.color = "#666";
                   }
                 }}
               >

@@ -1,13 +1,14 @@
 // deploy-test
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
+import { useCallback, useEffect, useRef, useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
 
 type Message = {
   role: "user" | "assistant";
   text: string;
   isTyping?: boolean;
+  timestamp?: string;
 };
 
 type EmbedProps = {
@@ -20,6 +21,10 @@ function slugFromPathname(): string | null {
   if (typeof window === "undefined") return null;
   const m = window.location.pathname.match(/\/embed\/([^/?#]+)/);
   return m?.[1] ? decodeURIComponent(m[1]) : null;
+}
+
+function nowTime(): string {
+  return new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
 
 function useTypewriter(text: string, enabled: boolean, speed = 18) {
@@ -78,6 +83,10 @@ const defaultQuickActions = [
   { label: "Öffnungszeiten", text: "Wie sind die Öffnungszeiten?" },
 ];
 
+const PROACTIVE_DELAY_MS = 45_000;
+const PROACTIVE_TEXT =
+  "Gibt es noch etwas, womit ich helfen kann? Falls Sie möchten, kann ich Ihre Anfrage auch direkt **ans Team weiterleiten**.";
+
 export default function Embed({ params }: EmbedProps) {
   const [slugSafe, setSlugSafe] = useState<string>(() => params?.slug || "");
   useEffect(() => {
@@ -93,17 +102,47 @@ export default function Embed({ params }: EmbedProps) {
   const [lastAssistantIndex, setLastAssistantIndex] = useState(-1);
   const [tenantName, setTenantName] = useState<string>("");
   const [quickActionsVisible, setQuickActionsVisible] = useState(true);
+  const [proactiveFired, setProactiveFired] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const proactiveFiredRef = useRef(false);
 
+  // Auto-scroll
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, isSending]);
 
+  // Proactivity timer — reset on every new message, fire once after 45s
+  useEffect(() => {
+    if (messages.length < 2) return; // wait for actual conversation
+    if (proactiveFiredRef.current) return;
+
+    if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    inactivityTimer.current = setTimeout(() => {
+      if (proactiveFiredRef.current) return;
+      proactiveFiredRef.current = true;
+      setProactiveFired(true);
+      setMessages((prev) => {
+        const next: Message[] = [
+          ...prev,
+          { role: "assistant", text: PROACTIVE_TEXT, isTyping: true, timestamp: nowTime() },
+        ];
+        setLastAssistantIndex(next.length - 1);
+        return next;
+      });
+    }, PROACTIVE_DELAY_MS);
+
+    return () => {
+      if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    };
+  }, [messages.length]);
+
+  // Welcome message
   useEffect(() => {
     async function loadWelcome() {
       const slug = params?.slug || slugFromPathname() || "";
@@ -119,6 +158,7 @@ export default function Embed({ params }: EmbedProps) {
           role: "assistant",
           text: data?.welcome_message?.trim() || "Hallo! Wie kann ich Ihnen helfen?",
           isTyping: true,
+          timestamp: nowTime(),
         }]);
         setLastAssistantIndex(0);
       } catch {
@@ -126,6 +166,7 @@ export default function Embed({ params }: EmbedProps) {
           role: "assistant",
           text: "Hallo! Wie kann ich Ihnen helfen?",
           isTyping: true,
+          timestamp: nowTime(),
         }]);
         setLastAssistantIndex(0);
       }
@@ -142,8 +183,8 @@ export default function Embed({ params }: EmbedProps) {
     if (!slug) {
       setMessages((m) => [
         ...m,
-        { role: "user", text: q },
-        { role: "assistant", text: "Konfigurationsfehler: Tenant-Slug fehlt.", isTyping: false },
+        { role: "user", text: q, timestamp: nowTime() },
+        { role: "assistant", text: "Konfigurationsfehler: Tenant-Slug fehlt.", isTyping: false, timestamp: nowTime() },
       ]);
       setInput("");
       return;
@@ -151,7 +192,7 @@ export default function Embed({ params }: EmbedProps) {
 
     setInput("");
     setQuickActionsVisible(false);
-    setMessages((m) => [...m, { role: "user", text: q }]);
+    setMessages((m) => [...m, { role: "user", text: q, timestamp: nowTime() }]);
     setIsSending(true);
 
     try {
@@ -182,7 +223,7 @@ export default function Embed({ params }: EmbedProps) {
           ? data.error
           : "API Fehler: Anfrage fehlgeschlagen.";
         setMessages((m) => {
-          const next = [...m, { role: "assistant" as const, text: errMsg, isTyping: false }];
+          const next = [...m, { role: "assistant" as const, text: errMsg, isTyping: false, timestamp: nowTime() }];
           setLastAssistantIndex(next.length - 1);
           return next;
         });
@@ -195,13 +236,13 @@ export default function Embed({ params }: EmbedProps) {
           : "Entschuldigung, ich konnte gerade keine Antwort erzeugen.";
 
       setMessages((m) => {
-        const next = [...m, { role: "assistant" as const, text: answer, isTyping: true }];
+        const next = [...m, { role: "assistant" as const, text: answer, isTyping: true, timestamp: nowTime() }];
         setLastAssistantIndex(next.length - 1);
         return next;
       });
     } catch {
       setMessages((m) => {
-        const next = [...m, { role: "assistant" as const, text: "Technischer Fehler: Die Anfrage konnte nicht verarbeitet werden.", isTyping: false }];
+        const next = [...m, { role: "assistant" as const, text: "Technischer Fehler: Die Anfrage konnte nicht verarbeitet werden.", isTyping: false, timestamp: nowTime() }];
         setLastAssistantIndex(next.length - 1);
         return next;
       });
@@ -370,8 +411,10 @@ export default function Embed({ params }: EmbedProps) {
                     key={i}
                     style={{
                       display: "flex",
-                      justifyContent: isUser ? "flex-end" : "flex-start",
+                      flexDirection: "column",
+                      alignItems: isUser ? "flex-end" : "flex-start",
                       animation: "fadeSlideIn 0.25s ease forwards",
+                      gap: "3px",
                     }}
                   >
                     <div style={{
@@ -390,6 +433,16 @@ export default function Embed({ params }: EmbedProps) {
                         <AssistantMessage text={m.text} animate={shouldAnimate} />
                       )}
                     </div>
+                    {m.timestamp && (
+                      <span style={{
+                        fontSize: "10px",
+                        color: "#ccc",
+                        paddingLeft: isUser ? "0" : "4px",
+                        paddingRight: isUser ? "4px" : "0",
+                      }}>
+                        {m.timestamp}
+                      </span>
+                    )}
                   </div>
                 );
               })}

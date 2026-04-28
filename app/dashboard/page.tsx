@@ -184,49 +184,79 @@ export default function DashboardPage() {
         <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "20px" }}>
 
           {/* Stat Cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: "10px" }}>
-            {stats.map((stat, i) => (
-              <div
-                key={stat.label}
-                style={{
-                  background: "#fff",
-                  border: "1px solid #efefed",
-                  borderRadius: "10px",
-                  padding: "14px 16px",
-                  cursor: "pointer",
-                  ...revealStyle(0.1 + i * 0.08),
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "#c8c4f8";
-                  e.currentTarget.style.transform = "translateY(-2px)";
-                  e.currentTarget.style.boxShadow = "0 4px 16px rgba(91,83,216,0.08)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "#efefed";
-                  e.currentTarget.style.transform = "translateY(0)";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-              >
-                <div style={{
-                  width: "28px", height: "28px", borderRadius: "7px",
-                  background: stat.bg, display: "flex", alignItems: "center",
-                  justifyContent: "center", fontSize: "13px", marginBottom: "10px",
-                }}>
-                  {stat.icon}
-                </div>
-                <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-                  <p style={{ fontSize: "22px", fontWeight: 700, color: "#0a0a0a", letterSpacing: "-0.5px" }}>
-                    {stat.value}
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "10px" }}>
+            {stats.map((stat, i) => {
+              const isPrimary = i === 0;
+              return (
+                <div
+                  key={stat.label}
+                  style={{
+                    background: isPrimary ? "#1a5c3a" : "#fff",
+                    border: isPrimary ? "none" : "1px solid #efefed",
+                    borderRadius: "12px",
+                    padding: isPrimary ? "20px 22px" : "14px 16px",
+                    cursor: "pointer",
+                    ...revealStyle(0.1 + i * 0.08),
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isPrimary) {
+                      e.currentTarget.style.background = "#154d30";
+                    } else {
+                      e.currentTarget.style.borderColor = "#c8c4f8";
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.boxShadow = "0 4px 16px rgba(91,83,216,0.08)";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (isPrimary) {
+                      e.currentTarget.style.background = "#1a5c3a";
+                    } else {
+                      e.currentTarget.style.borderColor = "#efefed";
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow = "none";
+                    }
+                  }}
+                >
+                  <div style={{
+                    width: isPrimary ? "32px" : "28px",
+                    height: isPrimary ? "32px" : "28px",
+                    borderRadius: "8px",
+                    background: isPrimary ? "rgba(255,255,255,0.15)" : stat.bg,
+                    display: "flex", alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: isPrimary ? "15px" : "13px",
+                    marginBottom: isPrimary ? "14px" : "10px",
+                  }}>
+                    {stat.icon}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+                    <p style={{
+                      fontSize: isPrimary ? "32px" : "22px",
+                      fontWeight: 700,
+                      color: isPrimary ? "#fff" : "#0a0a0a",
+                      letterSpacing: "-0.5px",
+                    }}>
+                      {stat.value}
+                    </p>
+                    {stat.trend && (
+                      <span style={{
+                        fontSize: "12px", fontWeight: 500,
+                        color: isPrimary ? "rgba(255,255,255,0.7)" : stat.trend.color,
+                      }}>
+                        {stat.trend.label}
+                      </span>
+                    )}
+                  </div>
+                  <p style={{
+                    fontSize: "11.5px",
+                    color: isPrimary ? "rgba(255,255,255,0.6)" : "#aaa",
+                    marginTop: "3px",
+                  }}>
+                    {stat.label}
                   </p>
-                  {stat.trend && (
-                    <span style={{ fontSize: "11px", fontWeight: 500, color: stat.trend.color }}>
-                      {stat.trend.label}
-                    </span>
-                  )}
                 </div>
-                <p style={{ fontSize: "11px", color: "#aaa", marginTop: "2px" }}>{stat.label}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Letzte Leads */}
