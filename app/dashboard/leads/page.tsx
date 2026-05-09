@@ -57,7 +57,7 @@ export default function LeadsPage() {
   }
 
   function leadTypColor(t: string) {
-    if (t === "appointment") return { bg: "#eeeeff", color: "#5b53d8", bar: "#5b53d8" };
+    if (t === "appointment") return { bg: "#e2ede8", color: "#1a5c3a", bar: "#1a5c3a" };
     if (t === "callback") return { bg: "#fff4e6", color: "#b36000", bar: "#f0a030" };
     return { bg: "#f5f5f5", color: "#888", bar: "#ddd" };
   }
@@ -71,7 +71,7 @@ export default function LeadsPage() {
   function statusStyle(s: string) {
     if (s === "in_bearbeitung") return { bg: "#fff4e6", color: "#b36000" };
     if (s === "erledigt") return { bg: "#edf5e4", color: "#3a6b10" };
-    return { bg: "#eeeeff", color: "#5b53d8" };
+    return { bg: "#e2ede8", color: "#1a5c3a" };
   }
 
   const revealStyle = (delay: number) => ({
@@ -93,21 +93,21 @@ export default function LeadsPage() {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", minHeight: "100vh", background: "#fafafa", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ display: "flex", minHeight: "100vh", background: "#fafaf8", alignItems: "center", justifyContent: "center" }}>
         <p style={{ color: "#bbb", fontSize: "14px" }}>Wird geladen...</p>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#fafafa" }}>
+    <div style={{ display: "flex", minHeight: "100vh", background: "#fafaf8" }}>
       <Sidebar role={role} tenantName={tenant?.name} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 
         <div style={{
           background: "#fff",
-          borderBottom: "1px solid #efefed",
+          borderBottom: "1px solid #e8e6e0",
           padding: "22px 28px",
           display: "flex",
           alignItems: "center",
@@ -150,9 +150,9 @@ export default function LeadsPage() {
                   borderRadius: "20px",
                   fontSize: "12px",
                   fontWeight: filter === tab.key ? 500 : 400,
-                  border: filter === tab.key ? "1px solid #c8c4f8" : "1px solid #efefed",
-                  background: filter === tab.key ? "#f5f4ff" : "#fff",
-                  color: filter === tab.key ? "#5b53d8" : "#aaa",
+                  border: filter === tab.key ? "1px solid #c4d9cc" : "1px solid #e8e6e0",
+                  background: filter === tab.key ? "#e2ede8" : "#fff",
+                  color: filter === tab.key ? "#1a5c3a" : "#aaa",
                   cursor: "pointer",
                   transition: "all 0.15s",
                 }}
@@ -160,8 +160,8 @@ export default function LeadsPage() {
                 {tab.label}
                 <span style={{
                   marginLeft: "6px", fontSize: "10px",
-                  background: filter === tab.key ? "#eeeeff" : "#f5f5f5",
-                  color: filter === tab.key ? "#5b53d8" : "#bbb",
+                  background: filter === tab.key ? "#e2ede8" : "#f5f5f5",
+                  color: filter === tab.key ? "#1a5c3a" : "#bbb",
                   padding: "1px 6px", borderRadius: "10px",
                 }}>
                   {counts[tab.key as keyof typeof counts]}
@@ -173,7 +173,7 @@ export default function LeadsPage() {
           <div style={revealStyle(0.1)}>
             {filteredLeads.length === 0 ? (
               <div style={{
-                background: "#fff", border: "1px solid #efefed",
+                background: "#fff", border: "1px solid #e8e6e0",
                 borderRadius: "10px", padding: "40px", textAlign: "center",
               }}>
                 <p style={{ fontSize: "13px", color: "#bbb" }}>Keine Leads in dieser Kategorie.</p>
@@ -188,17 +188,17 @@ export default function LeadsPage() {
                       key={lead.id}
                       onClick={() => router.push(`/dashboard/leads/${lead.id}`)}
                       style={{
-                        background: "#fff", border: "1px solid #efefed",
+                        background: "#fff", border: "1px solid #e8e6e0",
                         borderRadius: "9px", padding: "13px 16px",
                         display: "flex", alignItems: "center", gap: "12px",
                         cursor: "pointer", transition: "all 0.15s",
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = "#c8c4f8";
+                        e.currentTarget.style.borderColor = "#c4d9cc";
                         e.currentTarget.style.background = "#fdfcff";
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = "#efefed";
+                        e.currentTarget.style.borderColor = "#e8e6e0";
                         e.currentTarget.style.background = "#fff";
                       }}
                     >

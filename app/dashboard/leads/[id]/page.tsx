@@ -129,7 +129,7 @@ export default function LeadDetailPage() {
   }
 
   function leadTypColor(t: string) {
-    if (t === "appointment") return { bg: "#eeeeff", color: "#5b53d8" };
+    if (t === "appointment") return { bg: "#e2ede8", color: "#1a5c3a" };
     if (t === "callback") return { bg: "#fff4e6", color: "#b36000" };
     return { bg: "#f5f5f5", color: "#888" };
   }
@@ -142,19 +142,19 @@ export default function LeadDetailPage() {
 
   const sectionStyle = {
     background: "#fff",
-    border: "1px solid #efefed",
+    border: "1px solid #e8e6e0",
     borderRadius: "10px",
     padding: "20px 24px",
   };
 
   const inputStyle = {
     width: "100%",
-    background: "#fafafa",
+    background: "#fafaf8",
     color: "#111",
     borderRadius: "8px",
     padding: "9px 12px",
     fontSize: "13px",
-    border: "1px solid #efefed",
+    border: "1px solid #e8e6e0",
     outline: "none",
     boxSizing: "border-box" as const,
     transition: "border-color 0.15s",
@@ -163,7 +163,7 @@ export default function LeadDetailPage() {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", minHeight: "100vh", background: "#fafafa", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ display: "flex", minHeight: "100vh", background: "#fafaf8", alignItems: "center", justifyContent: "center" }}>
         <p style={{ color: "#bbb", fontSize: "14px" }}>Wird geladen...</p>
       </div>
     );
@@ -174,14 +174,14 @@ export default function LeadDetailPage() {
   const tagStyle = leadTypColor(lead.type);
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#fafafa" }}>
+    <div style={{ display: "flex", minHeight: "100vh", background: "#fafaf8" }}>
       <Sidebar role={role} tenantName={tenant?.name} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 
         <div style={{
           background: "#fff",
-          borderBottom: "1px solid #efefed",
+          borderBottom: "1px solid #e8e6e0",
           padding: "18px 28px",
           display: "flex",
           alignItems: "center",
@@ -264,8 +264,8 @@ export default function LeadDetailPage() {
             <p style={{ fontSize: "12px", fontWeight: 600, color: "#333", marginBottom: "12px" }}>Nachricht</p>
             <p style={{
               fontSize: "13px", color: "#444", lineHeight: 1.7,
-              background: "#fafafa", padding: "14px 16px",
-              borderRadius: "8px", border: "1px solid #f0f0f0",
+              background: "#fafaf8", padding: "14px 16px",
+              borderRadius: "8px", border: "1px solid #e8e6e0",
             }}>
               {lead.message}
             </p>
@@ -278,7 +278,7 @@ export default function LeadDetailPage() {
                 <p style={{ fontSize: "10.5px", color: "#bbb", marginBottom: "6px", fontWeight: 500 }}>Status</p>
                 <div style={{ display: "flex", gap: "8px" }}>
                   {[
-                    { key: "neu", label: "Neu", bg: "#eeeeff", color: "#5b53d8" },
+                    { key: "neu", label: "Neu", bg: "#e2ede8", color: "#1a5c3a" },
                     { key: "in_bearbeitung", label: "In Bearbeitung", bg: "#fff4e6", color: "#b36000" },
                     { key: "erledigt", label: "Erledigt", bg: "#edf5e4", color: "#3a6b10" },
                   ].map((s) => (
@@ -290,7 +290,7 @@ export default function LeadDetailPage() {
                         borderRadius: "20px",
                         fontSize: "12px",
                         fontWeight: status === s.key ? 600 : 400,
-                        border: status === s.key ? `1.5px solid ${s.color}` : "1px solid #efefed",
+                        border: status === s.key ? `1.5px solid ${s.color}` : "1px solid #e8e6e0",
                         background: status === s.key ? s.bg : "#fff",
                         color: status === s.key ? s.color : "#bbb",
                         cursor: "pointer",
@@ -311,8 +311,8 @@ export default function LeadDetailPage() {
                   placeholder="Notizen für das Team..."
                   rows={4}
                   style={{ ...inputStyle, resize: "none" }}
-                  onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
-                  onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
+                  onFocus={(e) => e.currentTarget.style.borderColor = "#c4d9cc"}
+                  onBlur={(e) => e.currentTarget.style.borderColor = "#e8e6e0"}
                 />
               </div>
 

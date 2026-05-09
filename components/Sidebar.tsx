@@ -112,35 +112,37 @@ export default function Sidebar({ role, tenantName }: Props) {
 
   return (
     <div style={{
-      width: "240px",
+      width: "220px",
       background: "#fff",
-      borderRight: "1px solid #efefed",
+      borderRight: "1px solid #e8e6e0",
       display: "flex",
       flexDirection: "column",
-      padding: "18px 12px",
+      padding: "16px 10px",
       flexShrink: 0,
       minHeight: "100vh",
     }}>
+      {/* Wordmark */}
       <div style={{
-        fontSize: "14px",
+        fontSize: "13px",
         fontWeight: 600,
-        color: "#111",
-        padding: "2px 8px 18px",
-        borderBottom: "1px solid #f0f0f0",
-        marginBottom: "16px",
-        letterSpacing: "-0.2px",
+        color: "#0f0f0e",
+        padding: "2px 8px 16px",
+        borderBottom: "1px solid #e8e6e0",
+        marginBottom: "14px",
+        letterSpacing: "0.02em",
+        textTransform: "uppercase" as const,
       }}>
         Fusionary AI
       </div>
 
       {allItems.map((group) => (
-        <div key={group.section} style={{ marginBottom: "4px" }}>
+        <div key={group.section} style={{ marginBottom: "2px" }}>
           <p style={{
-            fontSize: "10.5px",
-            color: "#bbb",
-            letterSpacing: "0.06em",
+            fontSize: "10px",
+            color: "#888780",
+            letterSpacing: "0.08em",
             textTransform: "uppercase" as const,
-            padding: "8px 8px 4px",
+            padding: "8px 8px 3px",
             fontWeight: 500,
           }}>
             {group.section}
@@ -157,28 +159,28 @@ export default function Sidebar({ role, tenantName }: Props) {
                   alignItems: "center",
                   gap: "8px",
                   padding: "7px 9px",
-                  borderRadius: "7px",
-                  fontSize: "12.5px",
-                  color: isActive ? "#5b53d8" : "#666",
-                  background: isActive ? "#f5f4ff" : "transparent",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  color: isActive ? "#1a5c3a" : "#4a4a47",
+                  background: isActive ? "#e2ede8" : "transparent",
                   fontWeight: isActive ? 500 : 400,
                   border: "none",
                   cursor: "pointer",
                   width: "100%",
                   textAlign: "left" as const,
                   transition: "all 0.15s",
-                  marginBottom: "2px",
+                  marginBottom: "1px",
                 }}
                 onMouseEnter={(e) => {
                   if (!isActive) {
-                    e.currentTarget.style.background = "#f7f7f5";
-                    e.currentTarget.style.color = "#444";
+                    e.currentTarget.style.background = "#f1efea";
+                    e.currentTarget.style.color = "#0f0f0e";
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!isActive) {
                     e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.color = "#666";
+                    e.currentTarget.style.color = "#4a4a47";
                   }
                 }}
               >
@@ -192,8 +194,8 @@ export default function Sidebar({ role, tenantName }: Props) {
 
       <div style={{
         marginTop: "auto",
-        paddingTop: "14px",
-        borderTop: "1px solid #f0f0f0",
+        paddingTop: "12px",
+        borderTop: "1px solid #e8e6e0",
       }}>
         <div style={{
           display: "flex",
@@ -205,22 +207,23 @@ export default function Sidebar({ role, tenantName }: Props) {
           <div style={{
             width: "26px",
             height: "26px",
-            borderRadius: "8px",
-            background: "#eeecff",
+            borderRadius: "7px",
+            background: "#e2ede8",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             fontSize: "10px",
-            fontWeight: 700,
-            color: "#5b53d8",
+            fontWeight: 600,
+            color: "#1a5c3a",
             flexShrink: 0,
+            letterSpacing: "0.03em",
           }}>
             {initials}
           </div>
           <div style={{ minWidth: 0 }}>
             <p style={{
-              fontSize: "11.5px",
-              color: "#444",
+              fontSize: "12px",
+              color: "#0f0f0e",
               fontWeight: 500,
               whiteSpace: "nowrap",
               overflow: "hidden",
@@ -229,7 +232,7 @@ export default function Sidebar({ role, tenantName }: Props) {
             }}>
               {tenantName ?? "Konto"}
             </p>
-            <p style={{ fontSize: "10px", color: "#bbb" }}>
+            <p style={{ fontSize: "10.5px", color: "#888780" }}>
               {role === "super_admin" ? "Super Admin" : "Kunde"}
             </p>
           </div>
@@ -243,23 +246,23 @@ export default function Sidebar({ role, tenantName }: Props) {
             gap: "6px",
             padding: "6px 9px",
             borderRadius: "6px",
-            fontSize: "11.5px",
-            color: "#bbb",
+            fontSize: "12px",
+            color: "#888780",
             background: "transparent",
             border: "none",
             cursor: "pointer",
             width: "100%",
             textAlign: "left" as const,
             transition: "all 0.15s",
-            marginBottom: "2px",
+            marginBottom: "1px",
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = "#f0f7ff";
-            e.currentTarget.style.color = "#5b53d8";
+            e.currentTarget.style.background = "#f1efea";
+            e.currentTarget.style.color = "#1a5c3a";
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = "#bbb";
+            e.currentTarget.style.color = "#888780";
           }}
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -280,8 +283,8 @@ export default function Sidebar({ role, tenantName }: Props) {
             gap: "6px",
             padding: "6px 9px",
             borderRadius: "6px",
-            fontSize: "11.5px",
-            color: "#bbb",
+            fontSize: "12px",
+            color: "#888780",
             background: "transparent",
             border: "none",
             cursor: "pointer",
@@ -290,12 +293,12 @@ export default function Sidebar({ role, tenantName }: Props) {
             transition: "all 0.15s",
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = "#fff0f0";
-            e.currentTarget.style.color = "#e05";
+            e.currentTarget.style.background = "#faeeda";
+            e.currentTarget.style.color = "#85500b";
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = "#bbb";
+            e.currentTarget.style.color = "#888780";
           }}
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">

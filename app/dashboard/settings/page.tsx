@@ -76,12 +76,12 @@ export default function SettingsPage() {
 
   const inputStyle = {
     width: "100%",
-    background: "#fafafa",
+    background: "#fafaf8",
     color: "#111",
     borderRadius: "8px",
     padding: "9px 12px",
     fontSize: "13px",
-    border: "1px solid #efefed",
+    border: "1px solid #e8e6e0",
     outline: "none",
     boxSizing: "border-box" as const,
     transition: "border-color 0.15s",
@@ -90,28 +90,28 @@ export default function SettingsPage() {
 
   const sectionStyle = {
     background: "#fff",
-    border: "1px solid #efefed",
+    border: "1px solid #e8e6e0",
     borderRadius: "10px",
     padding: "20px 24px",
   };
 
   if (loading) {
     return (
-      <div style={{ display: "flex", minHeight: "100vh", background: "#fafafa", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ display: "flex", minHeight: "100vh", background: "#fafaf8", alignItems: "center", justifyContent: "center" }}>
         <p style={{ color: "#bbb", fontSize: "14px" }}>Wird geladen...</p>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#fafafa" }}>
+    <div style={{ display: "flex", minHeight: "100vh", background: "#fafaf8" }}>
       <Sidebar role={role} tenantName={tenant?.name} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 
         <div style={{
           background: "#fff",
-          borderBottom: "1px solid #efefed",
+          borderBottom: "1px solid #e8e6e0",
           padding: "22px 28px",
           ...revealStyle(0),
         }}>
@@ -139,7 +139,7 @@ export default function SettingsPage() {
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
               <div style={{
                 width: "32px", height: "32px", borderRadius: "8px",
-                background: "#f0f0f0",
+                background: "#e8e6e0",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: "16px",
               }}>
@@ -168,8 +168,8 @@ export default function SettingsPage() {
                 onChange={(e) => setSlackWebhook(e.target.value)}
                 placeholder="https://hooks.slack.com/services/..."
                 style={inputStyle}
-                onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
-                onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
+                onFocus={(e) => e.currentTarget.style.borderColor = "#c4d9cc"}
+                onBlur={(e) => e.currentTarget.style.borderColor = "#e8e6e0"}
               />
               <p style={{ fontSize: "10.5px", color: "#bbb", marginTop: "5px" }}>
                 Einrichten unter: Slack → Apps → Incoming Webhooks
@@ -212,8 +212,8 @@ export default function SettingsPage() {
                 placeholder="pat-eu1-..."
                 type="password"
                 style={inputStyle}
-                onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
-                onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
+                onFocus={(e) => e.currentTarget.style.borderColor = "#c4d9cc"}
+                onBlur={(e) => e.currentTarget.style.borderColor = "#e8e6e0"}
               />
               <p style={{ fontSize: "10.5px", color: "#bbb", marginTop: "5px" }}>
                 Einrichten unter: HubSpot → Einstellungen → Integrationen → Private Apps
@@ -226,7 +226,7 @@ export default function SettingsPage() {
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
               <div style={{
                 width: "32px", height: "32px", borderRadius: "8px",
-                background: "#eef4ff",
+                background: "#f1efea",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: "16px",
               }}>
@@ -256,8 +256,8 @@ export default function SettingsPage() {
                 placeholder="API Token aus Pipedrive Einstellungen"
                 type="password"
                 style={inputStyle}
-                onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
-                onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
+                onFocus={(e) => e.currentTarget.style.borderColor = "#c4d9cc"}
+                onBlur={(e) => e.currentTarget.style.borderColor = "#e8e6e0"}
               />
               <p style={{ fontSize: "10.5px", color: "#bbb", marginTop: "5px" }}>
                 Einrichten unter: Pipedrive → Einstellungen → Persönliche Einstellungen → API
