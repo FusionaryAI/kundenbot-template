@@ -27,6 +27,25 @@ function nowTime(): string {
   return new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
 
+// Per-tab conversation id, persisted in sessionStorage so refreshes keep
+// the same analytics row. New tab / new session = new conversation.
+function getOrCreateConversationId(slug: string): string {
+  if (typeof window === "undefined") return "";
+  const key = `fai_conv_${slug}`;
+  try {
+    const existing = window.sessionStorage.getItem(key);
+    if (existing && existing.length >= 8) return existing;
+  } catch {}
+  const uuid =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    window.sessionStorage.setItem(key, uuid);
+  } catch {}
+  return uuid;
+}
+
 function useTypewriter(text: string, enabled: boolean, speed = 18) {
   const [displayed, setDisplayed] = useState("");
   const [done, setDone] = useState(false);
@@ -210,6 +229,7 @@ export default function Embed({ params }: EmbedProps) {
         body: JSON.stringify({
           slug,
           message: q,
+          conversation_id: getOrCreateConversationId(slug),
           messages: messagesRef.current
             .slice(-6)
             .map((m) => ({ role: m.role, content: m.text })),

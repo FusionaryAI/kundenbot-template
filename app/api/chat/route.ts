@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { randomUUID } from "crypto";
 import { supaAdmin } from "@/lib/db";
+import { recordConversationTurn } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 
@@ -562,6 +564,7 @@ async function sendLeadViaApi(
     metadata?: any;
     appointment_topic?: string | null;
     appointment_window?: string | null;
+    conversation_id?: string | null;
   },
 ) {
   const publicBase = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
@@ -582,6 +585,7 @@ async function sendLeadViaApi(
       message: lead.message,
       appointment_topic: lead.appointment_topic ?? null,
       appointment_window: lead.appointment_window ?? null,
+      conversation_id: lead.conversation_id ?? null,
       metadata: lead.metadata ?? { source: "chat" },
     }),
   });
@@ -620,6 +624,20 @@ export async function POST(req: NextRequest) {
       slugFromReferer(req) ??
       undefined;
 
+    // Conversation tracking for ROI dashboard.
+    // The widget sends a sessionStorage-backed UUID; if absent (legacy clients
+    // or non-widget callers) we mint one so the row can still be created.
+    const incomingConvId =
+      typeof body?.conversation_id === "string" && body.conversation_id.trim()
+        ? body.conversation_id.trim()
+        : null;
+    const conversationId = incomingConvId ?? randomUUID();
+    const priorMessages = Array.isArray(body?.messages) ? body.messages : [];
+    // The widget sends `messages` BEFORE pushing the current user turn, so 0
+    // prior user messages means this is the conversation's first user message.
+    const priorUserCount = priorMessages.filter((m: any) => m?.role === "user").length;
+    const isFirstUserMessage = !incomingConvId || priorUserCount === 0;
+
     let handoff = normalizeHandoff(body.handoff);
     if (!handoff.page_context && context) handoff.page_context = context;
 
@@ -629,6 +647,32 @@ export async function POST(req: NextRequest) {
     const tenant = await getTenantBySlug(slug);
     const settings = await getTenantSettings(tenant.id);
     const leadEnabled = settings.lead_enabled !== false;
+
+    // Analytics accumulator — set by branches before respond() is called.
+    const analytics = {
+      bestSimilarity: null as number | null,
+      isFallback: false,
+      logged: false,
+    };
+
+    // Single exit point. Adds conversation_id, fires analytics, returns JSON.
+    function respond(payload: Record<string, any>) {
+      const out = { ...payload, conversation_id: conversationId };
+      if (!analytics.logged) {
+        analytics.logged = true;
+        // fire-and-forget; never blocks the chat reply
+        recordConversationTurn({
+          tenantId: tenant.id,
+          conversationId,
+          isFirstMessage: isFirstUserMessage,
+          firstUserMessage: isFirstUserMessage ? message : null,
+          bestSimilarity: analytics.bestSimilarity,
+          isFallback: analytics.isFallback,
+          openingHours: (tenant as any)?.opening_hours ?? null,
+        }).catch((e) => console.error("[chat] analytics:", e));
+      }
+      return NextResponse.json(out);
+    }
 
     if (!leadEnabled) handoff = { active: false, completed: false };
 
@@ -643,7 +687,7 @@ export async function POST(req: NextRequest) {
 - Du kannst Informationen aus dem Unternehmenswissen wiedergeben und bei Bedarf an das Team weiterleiten.`;
 
     if (isCapabilityQuestion(message)) {
-      return NextResponse.json({
+      return respond({
         text: buildCapabilityAnswer({ tenantName: tenant.name, medicalTenant }),
         welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -665,7 +709,7 @@ export async function POST(req: NextRequest) {
           offered_at_ts: now, message: message.trim(),
           page_context: handoff.page_context ?? context ?? null,
         };
-        return NextResponse.json({
+        return respond({
           text: MEDICAL_SAFETY_FALLBACK + "\n\nSoll ich Ihre Anfrage an das Team weiterleiten und eine Terminanfrage aufnehmen?",
           welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -673,7 +717,8 @@ export async function POST(req: NextRequest) {
           handoff,
         });
       }
-      return NextResponse.json({
+      analytics.isFallback = true;
+      return respond({
         text: MEDICAL_SAFETY_FALLBACK,
         welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -693,7 +738,7 @@ export async function POST(req: NextRequest) {
     if (handoff.stage === "offered" && !handoff.active && !handoff.completed) {
       if (userSaysNo(message)) {
         handoff = { active: false, completed: false };
-        return NextResponse.json({
+        return respond({
           text: "Alles klar. Wobei kann ich Ihnen sonst helfen?",
           welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -704,7 +749,7 @@ export async function POST(req: NextRequest) {
       if (userSaysYes(message)) {
         handoff.active = true;
         handoff.stage = "collect_name";
-        return NextResponse.json({
+        return respond({
           text: "Super. Wie ist Ihr Name?",
           welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -717,7 +762,7 @@ export async function POST(req: NextRequest) {
     if (handoff.active && !handoff.completed) {
       if (userSaysNo(message)) {
         handoff = { active: false, completed: false };
-        return NextResponse.json({
+        return respond({
           text: "Alles klar. Wobei kann ich Ihnen sonst helfen?",
           welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -731,7 +776,7 @@ export async function POST(req: NextRequest) {
 
       if (!handoff.name && handoff.stage === "collect_name") {
         if (extractEmail(raw) || extractPhone(raw)) {
-          return NextResponse.json({
+          return respond({
             text: "Danke. Bitte nennen Sie mir Ihren Namen (Vor- und Nachname).",
             welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -745,7 +790,7 @@ export async function POST(req: NextRequest) {
           handoff.first_name = s.first_name;
           handoff.last_name = s.last_name;
           handoff.stage = "collect_contact";
-          return NextResponse.json({
+          return respond({
             text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
             welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -757,7 +802,7 @@ export async function POST(req: NextRequest) {
           handoff.name = normalizeNameCandidate(raw).split(/\s+/)[0];
           handoff.first_name = handoff.name;
           handoff.last_name = null;
-          return NextResponse.json({
+          return respond({
             text: "Danke. Können Sie mir bitte noch Ihren Nachnamen nennen?",
             welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -772,7 +817,7 @@ export async function POST(req: NextRequest) {
           handoff.first_name = s.first_name;
           handoff.last_name = s.last_name;
           handoff.stage = "collect_contact";
-          return NextResponse.json({
+          return respond({
             text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
             welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -780,7 +825,7 @@ export async function POST(req: NextRequest) {
             handoff,
           });
         }
-        return NextResponse.json({
+        return respond({
           text: "Wie ist Ihr vollständiger Name? (Vor- und Nachname, z. B. Max Mustermann)",
           welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -796,7 +841,7 @@ export async function POST(req: NextRequest) {
           handoff.last_name = lastCandidate;
           handoff.name = `${handoff.first_name ?? handoff.name} ${handoff.last_name}`.trim();
           handoff.stage = "collect_contact";
-          return NextResponse.json({
+          return respond({
             text: "Danke. Wie können wir Sie am besten erreichen – per E-Mail oder Telefon?",
             welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -825,7 +870,7 @@ export async function POST(req: NextRequest) {
 
         if (!handoff.email && !handoff.phone) {
           if (handoff.preferred_contact === "phone") {
-            return NextResponse.json({
+            return respond({
               text: "Alles klar. Wie lautet Ihre Telefonnummer?",
               welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -834,7 +879,7 @@ export async function POST(req: NextRequest) {
             });
           }
           if (handoff.preferred_contact === "email") {
-            return NextResponse.json({
+            return respond({
               text: "Alles klar. Wie lautet Ihre E-Mail-Adresse?",
               welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -842,7 +887,7 @@ export async function POST(req: NextRequest) {
               handoff,
             });
           }
-          return NextResponse.json({
+          return respond({
             text: "Bitte senden Sie mir Ihre E-Mail-Adresse oder Telefonnummer (z. B. max@mail.de oder +49...).",
             welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -855,7 +900,8 @@ export async function POST(req: NextRequest) {
         if (handoff.message && t === "contact") {
           if (!leadEnabled || !settings.lead_email) {
             handoff = { active: false, completed: false };
-            return NextResponse.json({
+            analytics.isFallback = true;
+            return respond({
               text: settings.fallback_message,
               welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -872,6 +918,7 @@ export async function POST(req: NextRequest) {
             message: handoff.message,
             appointment_topic: null,
             appointment_window: null,
+            conversation_id: conversationId,
             metadata: {
               source: "chat", lead_type: "contact",
               first_name: handoff.first_name ?? null,
@@ -879,12 +926,13 @@ export async function POST(req: NextRequest) {
               preferred_contact: handoff.preferred_contact ?? null,
               kb_fallback_handoff: true,
               page_context: handoff.page_context ?? null,
+              conversation_id: conversationId,
             },
           });
           handoff.completed = true;
           handoff.active = false;
           handoff.stage = "ready";
-          return NextResponse.json({
+          return respond({
             text: result.message || settings.lead_auto_reply || "Vielen Dank! Wir melden uns zeitnah.",
             welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -900,7 +948,7 @@ export async function POST(req: NextRequest) {
             : t === "callback"
               ? "Worum geht es und wann sollen wir Sie am besten zurückrufen?"
               : "Worum geht es genau? Bitte kurz schildern.";
-        return NextResponse.json({
+        return respond({
           text: ask,
           welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -925,7 +973,7 @@ export async function POST(req: NextRequest) {
               if (llm.message && llm.message.length >= 3) handoff.message = llm.message;
             }
             if (!handoff.message) {
-              return NextResponse.json({
+              return respond({
                 text: "Bitte schildern Sie kurz Ihr Anliegen.",
                 welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -947,7 +995,8 @@ export async function POST(req: NextRequest) {
 
       if (!leadEnabled || !settings.lead_email) {
         handoff = { active: false, completed: false };
-        return NextResponse.json({
+        analytics.isFallback = true;
+        return respond({
           text: settings.fallback_message,
           welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -967,6 +1016,7 @@ export async function POST(req: NextRequest) {
         message: leadMessage,
         appointment_topic: leadType === "appointment" ? handoff.appointment_topic ?? null : null,
         appointment_window: leadType === "appointment" ? handoff.appointment_window ?? null : null,
+        conversation_id: conversationId,
         metadata: {
           source: "chat", lead_type: leadType,
           first_name: handoff.first_name ?? null,
@@ -976,12 +1026,13 @@ export async function POST(req: NextRequest) {
           appointment_window: handoff.appointment_window ?? null,
           kb_fallback_handoff: leadType === "contact",
           page_context: handoff.page_context ?? null,
+          conversation_id: conversationId,
         },
       });
       handoff.completed = true;
       handoff.active = false;
       handoff.stage = "ready";
-      return NextResponse.json({
+      return respond({
         text: result.message || settings.lead_auto_reply || "Vielen Dank! Wir melden uns zeitnah.",
         welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -1005,7 +1056,7 @@ export async function POST(req: NextRequest) {
           : ruleLeadType === "callback"
             ? "Möchten Sie, dass ich eine Rückrufbitte ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten und das Thema auf."
             : "Möchten Sie, dass ich Ihre Anfrage direkt ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten auf.";
-      return NextResponse.json({
+      return respond({
         text: offerText,
         welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -1031,6 +1082,7 @@ export async function POST(req: NextRequest) {
     const top = (above.length > 0 ? above : sorted).slice(0, 4);
     const kbBullets = top.map((m) => `- ${m.content}`).join("\n");
     const best = sorted[0];
+    analytics.bestSimilarity = best && typeof best.similarity === "number" ? best.similarity : null;
     const second = sorted[1];
     const margin =
       best && second &&
@@ -1063,7 +1115,7 @@ export async function POST(req: NextRequest) {
           offered_at_ts: now, message: message.trim(),
           page_context: handoff.page_context ?? context ?? null,
         };
-        return NextResponse.json({
+        return respond({
           text: "Dazu habe ich aktuell keine hinterlegten Informationen. Soll ich Ihre Frage an das Team weiterleiten, damit Sie eine verlässliche Antwort erhalten?",
           welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -1071,7 +1123,8 @@ export async function POST(req: NextRequest) {
           handoff,
         });
       }
-      return NextResponse.json({
+      analytics.isFallback = true;
+      return respond({
         text: settings.fallback_message,
         welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -1086,7 +1139,7 @@ export async function POST(req: NextRequest) {
         offered_at_ts: now, message: message.trim(),
         page_context: handoff.page_context ?? context ?? null,
       };
-      return NextResponse.json({
+      return respond({
         text: "Ich habe dazu nur begrenzte Informationen hinterlegt. Soll ich Ihre Frage an das Team weiterleiten, damit Sie eine verlässliche Antwort erhalten?",
         welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -1114,7 +1167,7 @@ export async function POST(req: NextRequest) {
             : analysis.lead_type === "callback"
               ? "Möchten Sie, dass ich eine Rückrufbitte ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten und das Thema auf."
               : "Möchten Sie, dass ich Ihre Anfrage direkt ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten auf.";
-        return NextResponse.json({
+        return respond({
           text: offerText,
           welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -1130,7 +1183,7 @@ export async function POST(req: NextRequest) {
             offered_at_ts: now, message: message.trim(),
             page_context: handoff.page_context ?? context ?? null,
           };
-          return NextResponse.json({
+          return respond({
             text: "Das kann ich aktuell nicht verlässlich aus den hinterlegten Informationen beantworten. Soll ich Ihre Frage an das Team weiterleiten?",
             welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -1141,7 +1194,7 @@ export async function POST(req: NextRequest) {
         if (analysis.answer && analysis.answer.length > 0) {
           let out = analysis.answer;
           if (contactInfo) out = appendSoftHandoffHint(out, leadEnabled, medicalTenant);
-          return NextResponse.json({
+          return respond({
             text: out,
             welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
@@ -1185,6 +1238,7 @@ WICHTIG:
     });
 
     let text = completion.choices[0]?.message?.content ?? settings.fallback_message;
+    if (!completion.choices[0]?.message?.content) analytics.isFallback = true;
 
     if (medicalTenant) {
       const t = text.toLowerCase();
@@ -1193,12 +1247,15 @@ WICHTIG:
         "nehmen sie", "dosierung", "therapieplan",
         "ich kann sie behandeln", "ich kann ihnen eine therapie",
       ];
-      if (unsafeClaims.some((k) => t.includes(k))) text = MEDICAL_SAFETY_FALLBACK;
+      if (unsafeClaims.some((k) => t.includes(k))) {
+        text = MEDICAL_SAFETY_FALLBACK;
+        analytics.isFallback = true;
+      }
     }
 
     if (contactInfo) text = appendSoftHandoffHint(text, leadEnabled, medicalTenant);
 
-    return NextResponse.json({
+    return respond({
       text,
       welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
