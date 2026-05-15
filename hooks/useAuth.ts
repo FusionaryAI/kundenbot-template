@@ -36,14 +36,17 @@ export function useAuth(): AuthState {
       if (!roleData) { router.push("/login"); return; }
       setRole(roleData.role);
 
-      if (roleData.role === "super_admin") {
-        const { data: firstTenant } = await supabase
-          .from("tenants").select("id, name, slug").limit(1).single();
-        if (firstTenant) setTenant(firstTenant);
-      } else {
+      // Prefer the tenant explicitly linked in user_roles (works for both
+      // regular users and super_admins who pinned a "home" tenant for demos).
+      // Fall back to the first tenant only for super_admins without a link.
+      if (roleData.tenant_id) {
         const { data: tenantData } = await supabase
           .from("tenants").select("id, name, slug").eq("id", roleData.tenant_id).single();
         if (tenantData) setTenant(tenantData);
+      } else if (roleData.role === "super_admin") {
+        const { data: firstTenant } = await supabase
+          .from("tenants").select("id, name, slug").limit(1).single();
+        if (firstTenant) setTenant(firstTenant);
       }
 
       setLoading(false);
