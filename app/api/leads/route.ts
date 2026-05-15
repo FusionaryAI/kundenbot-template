@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { Resend } from "resend";
 import { supaAdmin } from "@/lib/db";
+import { markConversationAsLead } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 
@@ -195,6 +196,8 @@ export async function POST(req: NextRequest) {
     const appointment_topic = safeStr(body.appointment_topic) || null;
     const appointment_window = safeStr(body.appointment_window) || null;
     const metadata = body.metadata ?? { source: "chat" };
+    const conversation_id =
+      safeStr(body.conversation_id) || safeStr(metadata?.conversation_id) || null;
 
     // ✅ aus metadata in Spalten übernehmen (falls vorhanden)
     const first_name = safeStr(metadata?.first_name ?? "") || null;
@@ -241,6 +244,13 @@ export async function POST(req: NextRequest) {
     if (insErr) {
       console.error("DB insert error:", insErr);
       return NextResponse.json({ ok: false, error: "DB insert failed" }, { status: 500 });
+    }
+
+    // Mark originating chat conversation as converted (best-effort; never blocks).
+    if (conversation_id) {
+      markConversationAsLead(tenant.id, conversation_id).catch((e) =>
+        console.error("[leads] markConversationAsLead:", e)
+      );
     }
 
     const briefing = await generateTeamBriefing({

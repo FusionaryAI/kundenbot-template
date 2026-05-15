@@ -25,6 +25,17 @@ const navItems = [
         ),
       },
       {
+        label: "Wirkung",
+        href: "/dashboard/wirkung",
+        badge: "NEU",
+        icon: (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M2 12l4-4 3 3 5-6"/>
+            <path d="M11 5h3v3"/>
+          </svg>
+        ),
+      },
+      {
         label: "Leads",
         href: "/dashboard/leads",
         icon: (
@@ -185,7 +196,23 @@ export default function Sidebar({ role, tenantName }: Props) {
                 }}
               >
                 {item.icon}
-                {item.label}
+                <span style={{ flex: 1 }}>{item.label}</span>
+                {item.badge && (
+                  <span
+                    style={{
+                      fontSize: "9px",
+                      fontWeight: 600,
+                      letterSpacing: "0.06em",
+                      color: "#1a5c3a",
+                      background: "#e2ede8",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      lineHeight: 1,
+                    }}
+                  >
+                    {item.badge}
+                  </span>
+                )}
               </button>
             );
           })}
