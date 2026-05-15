@@ -6,6 +6,29 @@ import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { useAuth } from "@/hooks/useAuth";
 
+const DAYS: Array<{ key: string; label: string }> = [
+  { key: "mo", label: "Montag" },
+  { key: "di", label: "Dienstag" },
+  { key: "mi", label: "Mittwoch" },
+  { key: "do", label: "Donnerstag" },
+  { key: "fr", label: "Freitag" },
+  { key: "sa", label: "Samstag" },
+  { key: "so", label: "Sonntag" },
+];
+
+type DayHours = { open: string; close: string } | null;
+type OpeningHours = Record<string, DayHours>;
+
+const DEFAULT_HOURS: OpeningHours = {
+  mo: { open: "08:00", close: "18:00" },
+  di: { open: "08:00", close: "18:00" },
+  mi: { open: "08:00", close: "18:00" },
+  do: { open: "08:00", close: "18:00" },
+  fr: { open: "08:00", close: "16:00" },
+  sa: null,
+  so: null,
+};
+
 export default function SettingsPage() {
   const router = useRouter();
   const { tenant, role, loading: authLoading } = useAuth();
@@ -19,19 +42,44 @@ export default function SettingsPage() {
   const [hubspotKey, setHubspotKey] = useState("");
   const [pipedriveKey, setPipedriveKey] = useState("");
 
+  // Wirkung config
+  const [hourlyRate, setHourlyRate] = useState<string>("35");
+  const [handlingMinutes, setHandlingMinutes] = useState<string>("4");
+  const [openingHours, setOpeningHours] = useState<OpeningHours>(DEFAULT_HOURS);
+  const [wirkungSaving, setWirkungSaving] = useState(false);
+  const [wirkungMsg, setWirkungMsg] = useState("");
+
   useEffect(() => {
     if (!tenant?.id) return;
     async function loadData() {
-      const { data: settings } = await supabase
-        .from("tenant_settings")
-        .select("slack_webhook_url, hubspot_api_key, pipedrive_api_key")
-        .eq("tenant_id", tenant!.id)
-        .single();
+      const tenantId = tenant!.id;
+      const [settingsRes, tenantRes] = await Promise.all([
+        supabase
+          .from("tenant_settings")
+          .select("slack_webhook_url, hubspot_api_key, pipedrive_api_key")
+          .eq("tenant_id", tenantId)
+          .single(),
+        supabase
+          .from("tenants")
+          .select("hourly_rate_eur, avg_handling_time_minutes, opening_hours")
+          .eq("id", tenantId)
+          .single(),
+      ]);
 
+      const settings = settingsRes.data;
       if (settings) {
         setSlackWebhook(settings.slack_webhook_url ?? "");
         setHubspotKey(settings.hubspot_api_key ?? "");
         setPipedriveKey(settings.pipedrive_api_key ?? "");
+      }
+      const t = tenantRes.data;
+      if (t) {
+        if (t.hourly_rate_eur != null) setHourlyRate(String(t.hourly_rate_eur));
+        if (t.avg_handling_time_minutes != null)
+          setHandlingMinutes(String(t.avg_handling_time_minutes));
+        if (t.opening_hours && typeof t.opening_hours === "object") {
+          setOpeningHours({ ...DEFAULT_HOURS, ...(t.opening_hours as OpeningHours) });
+        }
       }
       setDataLoading(false);
       requestAnimationFrame(() => requestAnimationFrame(() => setRevealed(true)));
@@ -66,6 +114,46 @@ export default function SettingsPage() {
       setSaveMsg(`Fehler: ${data.error}`);
     }
     setTimeout(() => setSaveMsg(""), 4000);
+  }
+
+  async function handleSaveWirkung() {
+    if (!tenant) return;
+    setWirkungSaving(true);
+    setWirkungMsg("");
+
+    const res = await fetch("/api/settings/wirkung", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenant_id: tenant.id,
+        hourly_rate_eur: Number(hourlyRate),
+        avg_handling_time_minutes: Number(handlingMinutes),
+        opening_hours: openingHours,
+      }),
+    });
+
+    const data = await res.json();
+    setWirkungSaving(false);
+
+    if (data.ok) {
+      setWirkungMsg("Gespeichert!");
+    } else {
+      setWirkungMsg(`Fehler: ${data.error}`);
+    }
+    setTimeout(() => setWirkungMsg(""), 4000);
+  }
+
+  function setDayOpen(key: string, open: boolean) {
+    setOpeningHours((prev) => ({
+      ...prev,
+      [key]: open ? prev[key] ?? { open: "08:00", close: "18:00" } : null,
+    }));
+  }
+  function setDayTime(key: string, field: "open" | "close", value: string) {
+    setOpeningHours((prev) => {
+      const current = prev[key] ?? { open: "08:00", close: "18:00" };
+      return { ...prev, [key]: { ...current, [field]: value } };
+    });
   }
 
   const revealStyle = (delay: number) => ({
@@ -265,7 +353,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Speichern */}
+          {/* Speichern (Integrationen) */}
           <div style={{ display: "flex", alignItems: "center", gap: "12px", ...revealStyle(0.2) }}>
             <button
               onClick={handleSave}
@@ -279,11 +367,150 @@ export default function SettingsPage() {
               onMouseEnter={(e) => { if (!saving) e.currentTarget.style.background = "#333"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "#111"; }}
             >
-              {saving ? "Wird gespeichert..." : "Einstellungen speichern"}
+              {saving ? "Wird gespeichert..." : "Integrationen speichern"}
             </button>
             {saveMsg && (
               <span style={{ fontSize: "12px", color: saveMsg.includes("Fehler") ? "#e05" : "#3a6b10" }}>
                 {saveMsg}
+              </span>
+            )}
+          </div>
+
+          {/* Section heading: Wirkung */}
+          <div style={{ marginTop: "32px", marginBottom: "4px", ...revealStyle(0.22) }}>
+            <p style={{
+              fontFamily: "var(--font-instrument-serif), var(--font-playfair), Georgia, serif",
+              fontSize: "22px",
+              color: "#0f0f0e",
+              letterSpacing: "-0.01em",
+              lineHeight: 1.15,
+            }}>
+              Wirkung berechnen
+            </p>
+            <p style={{ fontSize: "12.5px", color: "#888780", marginTop: "4px" }}>
+              Diese Werte fließen in das Wirkung-Dashboard ein – Zeit- und Kostenersparnis basieren darauf.
+            </p>
+          </div>
+
+          {/* Berechnung */}
+          <div style={{ ...sectionStyle, ...revealStyle(0.25) }}>
+            <div style={{ marginBottom: "16px" }}>
+              <p style={{ fontSize: "13px", fontWeight: 600, color: "#0f0f0e" }}>Berechnung der Wirkung</p>
+              <p style={{ fontSize: "11.5px", color: "#888780", marginTop: "2px" }}>
+                Wie viel ist eine Mitarbeiterstunde wert – und wie lange dauert eine typische Anfrage?
+              </p>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+              <div>
+                <label style={{ fontSize: "11px", color: "#888780", display: "block", marginBottom: "5px", fontWeight: 500 }}>
+                  Stundensatz Ihrer Mitarbeiter (€)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1000}
+                  step={1}
+                  value={hourlyRate}
+                  onChange={(e) => setHourlyRate(e.target.value)}
+                  style={inputStyle}
+                />
+                <p style={{ fontSize: "10.5px", color: "#888780", marginTop: "5px" }}>
+                  Wird verwendet, um die Kostenersparnis zu berechnen.
+                </p>
+              </div>
+              <div>
+                <label style={{ fontSize: "11px", color: "#888780", display: "block", marginBottom: "5px", fontWeight: 500 }}>
+                  Bearbeitungszeit pro Anfrage (Minuten)
+                </label>
+                <input
+                  type="number"
+                  min={0.5}
+                  max={120}
+                  step={0.5}
+                  value={handlingMinutes}
+                  onChange={(e) => setHandlingMinutes(e.target.value)}
+                  style={inputStyle}
+                />
+                <p style={{ fontSize: "10.5px", color: "#888780", marginTop: "5px" }}>
+                  Wie lange würde ein Mitarbeiter durchschnittlich für eine Anfrage am Telefon brauchen?
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Öffnungszeiten */}
+          <div style={{ ...sectionStyle, ...revealStyle(0.3) }}>
+            <div style={{ marginBottom: "16px" }}>
+              <p style={{ fontSize: "13px", fontWeight: 600, color: "#0f0f0e" }}>Öffnungszeiten</p>
+              <p style={{ fontSize: "11.5px", color: "#888780", marginTop: "2px" }}>
+                Anfragen außerhalb dieser Zeiten zählen als „nach Feierabend abgefangen".
+              </p>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {DAYS.map((d) => {
+                const hours = openingHours[d.key];
+                const isOpen = !!hours;
+                return (
+                  <div
+                    key={d.key}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "100px 90px 1fr 1fr",
+                      gap: "10px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <p style={{ fontSize: "13px", color: "#0f0f0e", fontWeight: 500 }}>{d.label}</p>
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "12px", color: "#4a4a47" }}>
+                      <input
+                        type="checkbox"
+                        checked={isOpen}
+                        onChange={(e) => setDayOpen(d.key, e.target.checked)}
+                        style={{ accentColor: "#1a5c3a" }}
+                      />
+                      {isOpen ? "Geöffnet" : "Geschlossen"}
+                    </label>
+                    <input
+                      type="time"
+                      value={hours?.open ?? "08:00"}
+                      disabled={!isOpen}
+                      onChange={(e) => setDayTime(d.key, "open", e.target.value)}
+                      style={{ ...inputStyle, opacity: isOpen ? 1 : 0.4 }}
+                    />
+                    <input
+                      type="time"
+                      value={hours?.close ?? "18:00"}
+                      disabled={!isOpen}
+                      onChange={(e) => setDayTime(d.key, "close", e.target.value)}
+                      style={{ ...inputStyle, opacity: isOpen ? 1 : 0.4 }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Speichern (Wirkung) */}
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", ...revealStyle(0.35) }}>
+            <button
+              onClick={handleSaveWirkung}
+              disabled={wirkungSaving}
+              style={{
+                background: "#1a5c3a", color: "#fff", border: "none",
+                borderRadius: "8px", padding: "10px 20px", fontSize: "13px",
+                fontWeight: 500, cursor: "pointer",
+                opacity: wirkungSaving ? 0.6 : 1, transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => { if (!wirkungSaving) e.currentTarget.style.background = "#144a2e"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "#1a5c3a"; }}
+            >
+              {wirkungSaving ? "Wird gespeichert..." : "Wirkungs-Einstellungen speichern"}
+            </button>
+            {wirkungMsg && (
+              <span style={{ fontSize: "12px", color: wirkungMsg.includes("Fehler") ? "#e05" : "#1a5c3a" }}>
+                {wirkungMsg}
               </span>
             )}
           </div>
