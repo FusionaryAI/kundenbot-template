@@ -371,6 +371,90 @@ ${params.kbBullets}
 }
 
 // --------------------
+// Off-Topic-Deflektor
+// --------------------
+// Wird ausgeloest, wenn RAG nichts Verlaessliches liefert. Erkennt Fragen,
+// die nicht zum Aufgabenbereich gehoeren (allg. Wissen, Witze, persoenliche
+// Fragen an den Bot, Wetter, …) und produziert eine kurze, freundliche
+// Antwort, die zurueck zum Fachgebiet lenkt.
+
+async function detectOffTopicAndDeflect(params: {
+  message: string;
+  tenantName: string;
+  medicalTenant: boolean;
+  history: Array<{ role: "user" | "assistant"; content: string }>;
+}): Promise<{ off_topic: boolean; answer: string | null }> {
+  const hist = params.history.slice(-4);
+  const historyBlock =
+    hist.length > 0
+      ? `\nLetzte Gespraechsturns:\n${hist.map((m) => `${m.role === "user" ? "Nutzer" : "Bot"}: ${m.content}`).join("\n")}\n`
+      : "";
+
+  const role = params.medicalTenant
+    ? `digitaler Assistent der Praxis "${params.tenantName}". Aufgabenbereich: Praxisinfos (Oeffnungszeiten, Kontakt, Adresse, Leistungen laut Website, Terminanfragen).`
+    : `digitaler Assistent des Unternehmens "${params.tenantName}". Aufgabenbereich: Unternehmensinfos aus Website/FAQ (Leistungen, Kontakt, Oeffnungszeiten, organisatorische Fragen).`;
+
+  const prompt = `
+Du pruefst, ob eine Nachricht zum Aufgabenbereich eines Bots gehoert.
+
+Bot-Rolle: ${role}
+
+IN SCOPE (off_topic = false):
+- Fragen zu Oeffnungszeiten, Kontakt, Adresse, Anfahrt, Mitarbeitern
+- Fragen zu Leistungen, Angeboten, Preisen, Konditionen
+- Termine, Rueckrufe, organisatorische Anliegen
+- Konkrete Anliegen, die das Team beantworten koennte (auch wenn der Bot selbst die Info nicht hat)
+
+OFF TOPIC (off_topic = true):
+- Persoenliche Fragen an den Bot ("Wie geht es dir?", "Bist du eine KI?", "Wer bist du?", "Was ist deine Lieblingsfarbe?")
+- Allgemeines Weltwissen ("Wer ist Bundeskanzler?", "Was ist 2+2?", "Wie heisst die Hauptstadt von Frankreich?")
+- Witze, Smalltalk, Wetter, Sport, Politik, andere Unternehmen
+- Aufforderungen, die nichts mit dem Unternehmen zu tun haben ("Erzaehl mir einen Witz", "Schreibe ein Gedicht")
+
+Wenn OFF TOPIC: formuliere eine sehr kurze (1-2 Saetze), freundliche Antwort, die:
+- den off-topic Punkt locker und sympathisch quittiert (gerne mit einem Augenzwinkern, aber professionell)
+- sanft zurueck auf den eigentlichen Aufgabenbereich lenkt
+- in der Sie-Form bleibt
+- KEINE Floskeln wie "Ich bin nur ein KI-Modell" oder "Ich darf keine ..."
+
+Beispiele:
+- "Wie geht es dir?" → "Danke der Nachfrage — mir geht es gut! Wie kann ich Ihnen heute weiterhelfen?"
+- "Erzaehl einen Witz" → "Witze sind nicht ganz mein Fachgebiet — aber bei Fragen rund um die Praxis bin ich genau richtig. Was kann ich fuer Sie tun?"
+- "Wer ist Bundeskanzler?" → "Da bin ich nicht ganz der richtige Ansprechpartner. Falls Sie eine Frage zur Praxis haben, helfe ich gerne weiter."
+
+Im Zweifel: off_topic = false (lieber an die normale Logik durchreichen).
+
+Gib ausschliesslich JSON zurueck:
+{
+  "off_topic": boolean,
+  "answer": string | null
+}
+${historyBlock}
+Nachricht: """${params.message}"""
+`;
+
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0.4,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const raw = resp.choices[0]?.message?.content?.trim() || "{}";
+  try {
+    const obj = JSON.parse(raw);
+    return {
+      off_topic: !!obj.off_topic,
+      answer:
+        typeof obj.answer === "string" && obj.answer.trim().length > 0
+          ? obj.answer.trim()
+          : null,
+    };
+  } catch {
+    return { off_topic: false, answer: null };
+  }
+}
+
+// --------------------
 // Handoff Utils
 // --------------------
 
@@ -407,20 +491,24 @@ function userSaysNo(text: string) {
   return t === "nein" || t.startsWith("nein ") || t.startsWith("nein,");
 }
 
-type ConversationalIntent = "closing" | "thanks" | "acknowledgment" | "smalltalk" | null;
+type ConversationalIntent = "closing" | "thanks" | "acknowledgment" | "smalltalk" | "how_are_you" | null;
 
-// Erkennt konversationale Filler (Abschluss, Dank, Smalltalk), die KEINE Sachfrage sind
-// und daher NICHT in die RAG-Pipeline → Fallback laufen sollten.
+// Erkennt konversationale Filler (Abschluss, Dank, Smalltalk, "Wie geht's"), die KEINE
+// Sachfrage sind und daher NICHT in die RAG-Pipeline → Fallback laufen sollten.
 function classifyConversational(text: string): ConversationalIntent {
   const raw = (text || "").trim();
   if (!raw) return null;
-  if (raw.includes("?")) return null;
-  const t = raw.toLowerCase().replace(/[.!,;:]+$/g, "").trim();
+  const t = raw.toLowerCase().replace(/[.!,;:?]+$/g, "").trim();
   if (!t) return null;
   const words = t.split(/\s+/);
   if (words.length > 7) return null;
 
-  // Fragewörter → echte Frage, nicht klassifizieren
+  // Smalltalk-Patterns ZUERST — duerfen auch ein Fragezeichen enthalten.
+  if (/^(wie geht'?s|wie geht es|alles (gut|fit|klar)( bei (dir|ihnen|euch))?|wie l[aä]uft'?s)/.test(t)) return "how_are_you";
+  if (/^(hallo|hi|hey|guten (morgen|tag|abend)|servus|moin|gr[uü][sß] gott|gru[sß] dich|n[' ]?abend)/.test(t)) return "smalltalk";
+
+  // Ab hier: Fragezeichen oder Fragewoerter → echte Sachfrage, nicht klassifizieren
+  if (raw.includes("?")) return null;
   const questionWords = /\b(wann|wo|wie|was|wer|warum|weshalb|wieso|welche?r?|kann|k[oö]nnen|haben|gibt|ist|sind|darf|muss|m[oö]chte|brauche|suche|hat|werden)\b/;
   if (questionWords.test(t)) return null;
 
@@ -436,10 +524,6 @@ function classifyConversational(text: string): ConversationalIntent {
   if (/^(ok|okay|alles klar|verstanden|gut|super|perfekt|prima|wunderbar|sch[oö]n|ah(a)?|achso|ach so|stimmt|genau|richtig|jap?|jo)$/.test(t)) return "acknowledgment";
   if (/^(ja,?\s*(danke|klar|gut|sch[oö]n|gerne|passt)?)$/.test(t)) return "acknowledgment";
 
-  // Smalltalk / Begrüßung
-  if (/^(hallo|hi|hey|guten (morgen|tag|abend)|servus|moin|gr[uü][sß] gott|gru[sß] dich|n[' ]?abend)/.test(t)) return "smalltalk";
-  if (/^(wie geht'?s|wie geht es)/.test(t)) return "smalltalk";
-
   return null;
 }
 
@@ -453,6 +537,8 @@ function conversationalResponse(intent: Exclude<ConversationalIntent, null>): st
       return "Gerne. Kann ich Ihnen sonst noch weiterhelfen?";
     case "smalltalk":
       return "Hallo! Wie kann ich Ihnen heute helfen?";
+    case "how_are_you":
+      return "Danke der Nachfrage — mir geht es gut! Wie kann ich Ihnen heute weiterhelfen?";
   }
 }
 
@@ -1107,12 +1193,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // --- 1.5) Konversationale Filler abfangen (Abschluss, Dank, Smalltalk) ---
-    // Verhindert, dass kurze Antworten wie "Nein, danke" oder "Alles gut" in die
-    // RAG-Pipeline → Fallback laufen, wenn keine echte Sachfrage vorliegt.
+    // --- 1.5) Konversationale Filler abfangen (Abschluss, Dank, Smalltalk, "Wie geht's") ---
+    // Verhindert, dass kurze Antworten wie "Nein, danke", "Alles gut" oder "Wie geht es dir?"
+    // in die RAG-Pipeline → Fallback laufen, wenn keine echte Sachfrage vorliegt.
     const convIntent = classifyConversational(message);
     if (convIntent) {
-      return NextResponse.json({
+      return respond({
         text: conversationalResponse(convIntent),
         welcome_message: settings.welcome_message,
         tenant_name: tenant.name,
@@ -1186,6 +1272,34 @@ export async function POST(req: NextRequest) {
         second_similarity: second?.similarity ?? null,
         margin, HIGH_CONF, MID_CONF, handoff, context, contactInfo,
       });
+    }
+
+    // --- 3.5) Off-Topic-Deflektor: wenn RAG schwach ist, pruefen ob die Frage
+    // ueberhaupt zum Fachgebiet gehoert. Falls nicht: freundlich abspeisen und
+    // zurueck zum Thema lenken (statt Handoff anzubieten / in Fallback zu laufen).
+    const ragWeakForDeflect =
+      sorted.length === 0 ||
+      (best && typeof best.similarity === "number" && best.similarity < KB_GOOD_ENOUGH);
+    if (ragWeakForDeflect && !handoff.completed) {
+      try {
+        const deflect = await detectOffTopicAndDeflect({
+          message,
+          tenantName: tenant.name,
+          medicalTenant,
+          history: chatHistory,
+        });
+        if (deflect.off_topic && deflect.answer) {
+          return respond({
+            text: deflect.answer,
+            welcome_message: settings.welcome_message,
+            tenant_name: tenant.name,
+            from_kb: false,
+            handoff,
+          });
+        }
+      } catch (e) {
+        console.error("[off-topic] error:", e);
+      }
     }
 
     if (sorted.length === 0) {
