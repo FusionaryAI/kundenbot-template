@@ -305,14 +305,23 @@ Hilf der anfragenden Person schnell und zuverlässig mit Informationen des Unter
 async function analyzeMessage(params: {
   question: string;
   kbBullets: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
 }): Promise<{
   can_answer: boolean;
   answer?: string;
   offer_handoff: boolean;
   lead_type: LeadType;
 }> {
+  const hist = (params.history ?? []).slice(-6);
+  const historyBlock =
+    hist.length > 0
+      ? `\nLetzte Gesprächsturns (Kontext — wichtig für Kurzantworten wie "ja", "nein", "später", "ok"):\n${hist
+          .map((m) => `${m.role === "user" ? "Nutzer" : "Bot"}: ${m.content}`)
+          .join("\n")}\n`
+      : "";
+
   const prompt = `
-Analysiere die Nutzerfrage und die verfügbaren KB-Snippets.
+Analysiere die aktuelle Nutzerfrage im Kontext des bisherigen Gesprächs und der verfügbaren KB-Snippets.
 
 Gib ausschließlich JSON zurück:
 {
@@ -323,13 +332,14 @@ Gib ausschließlich JSON zurück:
 }
 
 Regeln:
-- can_answer = true nur wenn die Antwort klar aus den KB-Snippets ableitbar ist
+- Interpretiere die aktuelle Nachricht IM KONTEXT der letzten Bot-Nachricht. Kurze Antworten ("ja", "nein", "ok", "später", "passt") beziehen sich auf das, was der Bot zuletzt angeboten/gefragt hat.
+- can_answer = true nur wenn die Antwort klar aus den KB-Snippets ableitbar ist ODER wenn die Nachricht eine kontextuelle Bestätigung/Verneinung ist, die der Bot natürlich beantworten kann (dann formuliere die Antwort konversational).
 - answer = die Antwort wenn can_answer true ist, sonst null
-- offer_handoff = true wenn der Nutzer einen Termin, Rückruf oder Kontakt möchte
+- offer_handoff = true NUR wenn der Nutzer aktiv einen Termin, Rückruf oder Kontakt wünscht — NICHT wenn er ein Angebot ablehnt oder das Gespräch abschließt
 - lead_type = passender Lead-Typ basierend auf der Frage
 - Keine externen Annahmen
-
-Nutzerfrage:
+${historyBlock}
+Aktuelle Nutzerfrage:
 """${params.question}"""
 
 KB-Snippets:
@@ -395,6 +405,55 @@ function userSaysYes(text: string) {
 function userSaysNo(text: string) {
   const t = text.trim().toLowerCase();
   return t === "nein" || t.startsWith("nein ") || t.startsWith("nein,");
+}
+
+type ConversationalIntent = "closing" | "thanks" | "acknowledgment" | "smalltalk" | null;
+
+// Erkennt konversationale Filler (Abschluss, Dank, Smalltalk), die KEINE Sachfrage sind
+// und daher NICHT in die RAG-Pipeline → Fallback laufen sollten.
+function classifyConversational(text: string): ConversationalIntent {
+  const raw = (text || "").trim();
+  if (!raw) return null;
+  if (raw.includes("?")) return null;
+  const t = raw.toLowerCase().replace(/[.!,;:]+$/g, "").trim();
+  if (!t) return null;
+  const words = t.split(/\s+/);
+  if (words.length > 7) return null;
+
+  // Fragewörter → echte Frage, nicht klassifizieren
+  const questionWords = /\b(wann|wo|wie|was|wer|warum|weshalb|wieso|welche?r?|kann|k[oö]nnen|haben|gibt|ist|sind|darf|muss|m[oö]chte|brauche|suche|hat|werden)\b/;
+  if (questionWords.test(t)) return null;
+
+  // Closing: Nein + Abschlussmarker, oder explizite Verabschiedung
+  if (/\bnein\b/.test(t) && /(danke|alles|w[aä]r'?s|nichts|reicht|passt|gut|fertig)/.test(t)) return "closing";
+  if (/^(das w[aä]r'?s|nichts mehr|reicht so|reicht mir|passt( so)?|alles( gut| klar)?|fertig|erledigt)/.test(t)) return "closing";
+  if (/(tsch[uü]ss|wiedersehen|ciao|sch[oö]nen tag|sch[oö]nen abend|sch[oö]nes wochenende|bis dann|bis bald|bis sp[aä]ter|machen sie'?s gut)/.test(t)) return "closing";
+
+  // Pure Dankeschön (kann Abschluss oder Ack sein — behandeln wir milder als closing)
+  if (/^(danke|vielen dank|dankesch[oö]n|merci|besten dank|tausend dank)( sehr| vielmals| dir| ihnen)?$/.test(t)) return "thanks";
+
+  // Acknowledgments / Bestätigung ohne neue Frage
+  if (/^(ok|okay|alles klar|verstanden|gut|super|perfekt|prima|wunderbar|sch[oö]n|ah(a)?|achso|ach so|stimmt|genau|richtig|jap?|jo)$/.test(t)) return "acknowledgment";
+  if (/^(ja,?\s*(danke|klar|gut|sch[oö]n|gerne|passt)?)$/.test(t)) return "acknowledgment";
+
+  // Smalltalk / Begrüßung
+  if (/^(hallo|hi|hey|guten (morgen|tag|abend)|servus|moin|gr[uü][sß] gott|gru[sß] dich|n[' ]?abend)/.test(t)) return "smalltalk";
+  if (/^(wie geht'?s|wie geht es)/.test(t)) return "smalltalk";
+
+  return null;
+}
+
+function conversationalResponse(intent: Exclude<ConversationalIntent, null>): string {
+  switch (intent) {
+    case "closing":
+      return "Gerne. Einen schönen Tag noch — und melden Sie sich jederzeit wieder, falls Fragen aufkommen.";
+    case "thanks":
+      return "Sehr gerne! Falls Sie noch etwas wissen möchten, sagen Sie einfach Bescheid.";
+    case "acknowledgment":
+      return "Gerne. Kann ich Ihnen sonst noch weiterhelfen?";
+    case "smalltalk":
+      return "Hallo! Wie kann ich Ihnen heute helfen?";
+  }
 }
 
 function extractEmail(text: string) {
@@ -640,6 +699,13 @@ export async function POST(req: NextRequest) {
 
     let handoff = normalizeHandoff(body.handoff);
     if (!handoff.page_context && context) handoff.page_context = context;
+
+    const chatHistory: Array<{ role: "user" | "assistant"; content: string }> = Array.isArray(body?.messages)
+      ? (body.messages as any[])
+          .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string" && m.content.trim().length > 0)
+          .slice(-6)
+          .map((m) => ({ role: m.role, content: m.content as string }))
+      : [];
 
     if (!message) return NextResponse.json({ error: "message required" }, { status: 400 });
     if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
@@ -1041,6 +1107,20 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // --- 1.5) Konversationale Filler abfangen (Abschluss, Dank, Smalltalk) ---
+    // Verhindert, dass kurze Antworten wie "Nein, danke" oder "Alles gut" in die
+    // RAG-Pipeline → Fallback laufen, wenn keine echte Sachfrage vorliegt.
+    const convIntent = classifyConversational(message);
+    if (convIntent) {
+      return NextResponse.json({
+        text: conversationalResponse(convIntent),
+        welcome_message: settings.welcome_message,
+        tenant_name: tenant.name,
+        from_kb: false,
+        handoff,
+      });
+    }
+
     // --- 2) Offer: Rule-first ---
     const bypassOffer = contactInfo;
     const ruleLeadType = detectLeadIntentRuleFirst(message);
@@ -1153,6 +1233,7 @@ export async function POST(req: NextRequest) {
       const analysis = await analyzeMessage({
         question: message,
         kbBullets,
+        history: chatHistory,
       });
 
       if (analysis.offer_handoff && !HIGH_CONF) {
@@ -1206,13 +1287,7 @@ export async function POST(req: NextRequest) {
     }
 
     // --- 5) HIGH_CONF: direkt aus KB antworten mit Chat-Verlauf ---
-    type HistoryMessage = { role: "user" | "assistant"; content: string };
-    const history: HistoryMessage[] = Array.isArray(body?.messages)
-      ? (body.messages as any[])
-          .filter((m) => m?.role && m?.content && typeof m.content === "string")
-          .slice(-6)
-          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
-      : [];
+    const history = chatHistory;
 
     const system = systemPrompt(tenant.name, settings.fallback_message, safetyHint);
     const pageHint = buildPageHint(handoff.page_context ?? context ?? null);
