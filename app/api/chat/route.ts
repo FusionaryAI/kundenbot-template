@@ -495,19 +495,31 @@ type ConversationalIntent = "closing" | "thanks" | "acknowledgment" | "smalltalk
 
 // Erkennt konversationale Filler (Abschluss, Dank, Smalltalk, "Wie geht's"), die KEINE
 // Sachfrage sind und daher NICHT in die RAG-Pipeline → Fallback laufen sollten.
+//
+// Wichtig: Begruessungen am Satzanfang ("Hallo, ...") werden ABGETRENNT, sodass die
+// eigentliche Substanz dahinter klassifiziert wird. "Hallo" allein -> smalltalk,
+// "Hallo, wie geht es dir?" -> how_are_you, "Hallo, wer ist Bundeskanzler?" -> null
+// (faellt in den Off-Topic-Deflektor).
 function classifyConversational(text: string): ConversationalIntent {
   const raw = (text || "").trim();
   if (!raw) return null;
-  const t = raw.toLowerCase().replace(/[.!,;:?]+$/g, "").trim();
-  if (!t) return null;
-  const words = t.split(/\s+/);
-  if (words.length > 7) return null;
+  const fullLower = raw.toLowerCase().replace(/[.!,;:?]+$/g, "").trim();
+  if (!fullLower) return null;
+  const words = fullLower.split(/\s+/);
+  if (words.length > 8) return null;
 
-  // Smalltalk-Patterns ZUERST — duerfen auch ein Fragezeichen enthalten.
+  // Greeting-Prefix abtrennen, falls vorhanden
+  const greetingPrefix = /^(hallo|hi|hey|guten (morgen|tag|abend)|servus|moin|gr[uü][sß] gott|gru[sß] dich|n[' ]?abend)\b[,!.\s-]*/;
+  const hadGreeting = greetingPrefix.test(fullLower);
+  const t = hadGreeting ? fullLower.replace(greetingPrefix, "").trim() : fullLower;
+
+  // Reine Begruessung ohne Substanz
+  if (hadGreeting && t.length === 0) return "smalltalk";
+
+  // How-are-you (auch nach Begruessung: "Hallo, wie geht es dir?")
   if (/^(wie geht'?s|wie geht es|alles (gut|fit|klar)( bei (dir|ihnen|euch))?|wie l[aä]uft'?s)/.test(t)) return "how_are_you";
-  if (/^(hallo|hi|hey|guten (morgen|tag|abend)|servus|moin|gr[uü][sß] gott|gru[sß] dich|n[' ]?abend)/.test(t)) return "smalltalk";
 
-  // Ab hier: Fragezeichen oder Fragewoerter → echte Sachfrage, nicht klassifizieren
+  // Ab hier: Sachfrage erkennbar → an Off-Topic-Deflektor / RAG durchreichen
   if (raw.includes("?")) return null;
   const questionWords = /\b(wann|wo|wie|was|wer|warum|weshalb|wieso|welche?r?|kann|k[oö]nnen|haben|gibt|ist|sind|darf|muss|m[oö]chte|brauche|suche|hat|werden)\b/;
   if (questionWords.test(t)) return null;
