@@ -29,12 +29,16 @@ export type MonthlyReportData = {
   dailyBreakdown: Array<{ date: string; count: number }>;
 };
 
+// Corporate palette extracted from fusionaryai.de (Framer site):
+// ink #0f0f0e · primärgrün #1a5c3a · secondary grün #2d7a52 · off-white #fafaf8
+// border #e8e6e0 · greenSoft #e2ede8. Schwarz/weiß/off-white + Dunkelgrün.
 const colors = {
   ink: "#0f0f0e",
   subtle: "#4a4a47",
   muted: "#888780",
   border: "#e8e6e0",
-  green: "#1a5c3a",
+  green: "#1a5c3a",       // brand primärgrün (fusionaryai.de)
+  greenSecondary: "#2d7a52",
   greenSoft: "#e2ede8",
   page: "#ffffff",
 };
@@ -93,10 +97,17 @@ const styles = StyleSheet.create({
   },
   sectionHeading: {
     fontSize: 8,
-    color: colors.muted,
+    color: colors.green,
     letterSpacing: 2,
     marginBottom: 10,
     textTransform: "uppercase",
+    fontFamily: "Helvetica-Bold",
+  },
+  bulletBand: {
+    backgroundColor: colors.greenSoft,
+    borderRadius: 6,
+    padding: "18 20 14 20",
+    marginBottom: 4,
   },
   bulletRow: {
     flexDirection: "row",
@@ -158,9 +169,9 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   closingTitle: {
-    fontSize: 13,
+    fontSize: 14,
     fontFamily: "Times-Italic",
-    color: colors.ink,
+    color: colors.green,
     marginBottom: 4,
   },
   closingBody: {
@@ -236,8 +247,8 @@ function Sparkline({
     <View>
       <Svg width={width} height={height}>
         <Line x1={0} y1={height - 0.5} x2={width} y2={height - 0.5} strokeWidth={0.5} stroke={colors.border} />
-        <Polyline points={points} stroke={colors.green} strokeWidth={1.4} fill="none" />
-        <Circle cx={lastX} cy={lastY} r={2.3} fill={colors.green} />
+        <Polyline points={points} stroke={colors.green} strokeWidth={1.9} fill="none" />
+        <Circle cx={lastX} cy={lastY} r={2.8} fill={colors.green} />
       </Svg>
     </View>
   );
@@ -277,40 +288,42 @@ export function MonthlyReport({ data }: { data: MonthlyReportData }) {
         {/* Bullets */}
         <Text style={styles.sectionHeading}>Im Überblick</Text>
 
-        <View style={styles.bulletRow}>
-          <Text style={styles.bulletMark}>✓</Text>
-          <Text style={styles.bulletText}>
-            <Text style={styles.bulletNumber}>{fmtNumber(data.totalConversations)}</Text>
-            {" Kundenanfragen automatisch bearbeitet."}
-          </Text>
-        </View>
-        <View style={styles.bulletRow}>
-          <Text style={styles.bulletMark}>✓</Text>
-          <Text style={styles.bulletText}>
-            <Text style={styles.bulletNumber}>{fmtHours(data.estimatedTimeSavedHours)}</Text>
-            {" Arbeitszeit für Ihr Team eingespart."}
-          </Text>
-        </View>
-        <View style={styles.bulletRow}>
-          <Text style={styles.bulletMark}>✓</Text>
-          <Text style={styles.bulletText}>
-            <Text style={styles.bulletNumber}>{fmtEur(data.estimatedMoneySavedEur)}</Text>
-            {" Personalkosten reduziert."}
-          </Text>
-        </View>
-        <View style={styles.bulletRow}>
-          <Text style={styles.bulletMark}>✓</Text>
-          <Text style={styles.bulletText}>
-            <Text style={styles.bulletNumber}>{fmtNumber(data.outsideHoursCount)}</Text>
-            {" Anfragen außerhalb Ihrer Öffnungszeiten beantwortet."}
-          </Text>
-        </View>
-        <View style={styles.bulletRow}>
-          <Text style={styles.bulletMark}>✓</Text>
-          <Text style={styles.bulletText}>
-            <Text style={styles.bulletNumber}>{fmtNumber(data.totalLeadsFromChat)}</Text>
-            {" qualifizierte Leads in Ihr System eingespielt."}
-          </Text>
+        <View style={styles.bulletBand}>
+          <View style={styles.bulletRow}>
+            <Text style={styles.bulletMark}>✓</Text>
+            <Text style={styles.bulletText}>
+              <Text style={styles.bulletNumber}>{fmtNumber(data.totalConversations)}</Text>
+              {" Kundenanfragen automatisch bearbeitet."}
+            </Text>
+          </View>
+          <View style={styles.bulletRow}>
+            <Text style={styles.bulletMark}>✓</Text>
+            <Text style={styles.bulletText}>
+              <Text style={styles.bulletNumber}>{fmtHours(data.estimatedTimeSavedHours)}</Text>
+              {" Arbeitszeit für Ihr Team eingespart."}
+            </Text>
+          </View>
+          <View style={styles.bulletRow}>
+            <Text style={styles.bulletMark}>✓</Text>
+            <Text style={styles.bulletText}>
+              <Text style={styles.bulletNumber}>{fmtEur(data.estimatedMoneySavedEur)}</Text>
+              {" Personalkosten reduziert."}
+            </Text>
+          </View>
+          <View style={styles.bulletRow}>
+            <Text style={styles.bulletMark}>✓</Text>
+            <Text style={styles.bulletText}>
+              <Text style={styles.bulletNumber}>{fmtNumber(data.outsideHoursCount)}</Text>
+              {" Anfragen außerhalb Ihrer Öffnungszeiten beantwortet."}
+            </Text>
+          </View>
+          <View style={[styles.bulletRow, { marginBottom: 0 }]}>
+            <Text style={styles.bulletMark}>✓</Text>
+            <Text style={styles.bulletText}>
+              <Text style={styles.bulletNumber}>{fmtNumber(data.totalLeadsFromChat)}</Text>
+              {" qualifizierte Leads in Ihr System eingespielt."}
+            </Text>
+          </View>
         </View>
 
         {/* Two columns: top questions + sparkline */}
@@ -356,7 +369,7 @@ export function MonthlyReport({ data }: { data: MonthlyReportData }) {
 
         {/* Footer */}
         <View style={styles.footer} fixed>
-          <Text>Fusionary AI · Donaupark 19 · 93309 Kelheim</Text>
+          <Text>Fusionary AI</Text>
           <Text>info@fusionaryai.de · fusionaryai.de</Text>
         </View>
       </Page>
