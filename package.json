@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
+    "@react-pdf/renderer": "^4.5.1",
     "@supabase/supabase-js": "^2.80.0",
     "cheerio": "^1.1.2",
     "dotenv": "^17.2.3",

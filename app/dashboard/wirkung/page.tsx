@@ -286,7 +286,31 @@ export default function WirkungPage() {
             </p>
           </div>
 
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            {tenant?.id && data && data.totalConversations > 0 && (
+              <a
+                href={`/api/dashboard/wirkung/report?tenant_id=${tenant.id}`}
+                style={{
+                  fontSize: 12.5,
+                  padding: "7px 13px",
+                  borderRadius: 6,
+                  border: `1px solid ${colors.border}`,
+                  background: colors.surface,
+                  color: colors.subtle,
+                  textDecoration: "none",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginRight: 8,
+                }}
+                title="Monatsbericht für den Vormonat als PDF herunterladen"
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M8 2v9M5 8l3 3 3-3M3 14h10" />
+                </svg>
+                Monatsbericht
+              </a>
+            )}
             {RANGE_PRESETS.map((p) => {
               const active = p.key === preset;
               return (
