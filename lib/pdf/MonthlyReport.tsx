@@ -29,13 +29,16 @@ export type MonthlyReportData = {
   dailyBreakdown: Array<{ date: string; count: number }>;
 };
 
+// Corporate palette: black / white / off-white / dunkelgrün — exact match
+// to fusionaryai.de website (Dunkelgrün #2d5a1b for active states, italic
+// serif headlines, CTAs). Lila aus CLAUDE.md wird nicht verwendet.
 const colors = {
   ink: "#0f0f0e",
   subtle: "#4a4a47",
   muted: "#888780",
   border: "#e8e6e0",
-  green: "#1a5c3a",
-  greenSoft: "#e2ede8",
+  green: "#2d5a1b",       // brand dunkelgrün — corporate accent (fusionaryai.de)
+  greenSoft: "#e8efe3",
   page: "#ffffff",
 };
 
@@ -356,7 +359,7 @@ export function MonthlyReport({ data }: { data: MonthlyReportData }) {
 
         {/* Footer */}
         <View style={styles.footer} fixed>
-          <Text>Fusionary AI · Donaupark 19 · 93309 Kelheim</Text>
+          <Text>Fusionary AI</Text>
           <Text>info@fusionaryai.de · fusionaryai.de</Text>
         </View>
       </Page>
