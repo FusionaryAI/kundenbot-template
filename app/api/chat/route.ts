@@ -129,6 +129,8 @@ function isMedicalTenant(tenantName: string, context: PageContext | null) {
 
 function looksLikeMedicalAdviceQuestion(text: string) {
   const t = (text || "").toLowerCase();
+
+  // Capability questions ("was kannst du") are never medical advice.
   const isCapabilityQuestion =
     t.includes("was kannst du") ||
     t.includes("was kann der assistent") ||
@@ -136,15 +138,43 @@ function looksLikeMedicalAdviceQuestion(text: string) {
     t.includes("wie kannst du helfen") ||
     t.includes("was machst du");
   if (isCapabilityQuestion) return false;
-  const medicalAdviceSignals = [
-    "ich habe", "ich hab", "symptom", "schmerzen", "fieber", "husten",
-    "durchfall", "übelkeit", "schwindel", "ausschlag", "entzündung",
-    "blut", "krampf", "herz", "atemnot", "brustschmerz", "diagnose",
-    "behandeln", "therapie", "medikament", "tablette", "ibuprofen",
-    "paracetamol", "antibiotika", "dosierung", "dosis", "wechselwirkung",
-    "schwanger", "stillen", "notfall", "dringend", "sofort",
+
+  // 1) Starke Beratungssignale — blocken auch bei organisatorischer Formulierung.
+  //    Ich-Symptom-Beschreibungen, konkrete Symptome, Diagnose-/Hilfe-Suche.
+  const strongAdviceSignals = [
+    "ich habe", "ich hab", "mir ist", "mir geht", "ich fühle", "ich fuehle",
+    "ich leide", "ich spüre", "ich spuere",
+    "symptom", "schmerz", "fieber", "husten", "durchfall", "übelkeit", "uebelkeit",
+    "schwindel", "ausschlag", "entzündung", "entzuendung", "krampf", "atemnot",
+    "brustschmerz", "blut im", "blut beim", "blut erbrechen",
+    "diagnose", "was hilft gegen", "was soll ich tun", "was kann ich tun gegen",
+    "ist das schlimm", "ist das gefährlich", "ist das gefaehrlich",
+    "wechselwirkung", "schwanger", "stillen", "notfall",
   ];
-  return medicalAdviceSignals.some((k) => t.includes(k));
+  if (strongAdviceSignals.some((k) => t.includes(k))) return true;
+
+  // 2) Medikamenten-Einnahme / Dosierung — blocken auch bei "wann/wie viel".
+  const mentionsMedication =
+    /medikament|tablette|tropfen|salbe|zäpfchen|zaepfchen|ibuprofen|paracetamol|antibiotika|aspirin/.test(t);
+  const intakeOrDose = /nehmen|einnehmen|dosis|dosier|wie oft|wie viel|auftragen/.test(t);
+  if (mentionsMedication && intakeOrDose) return true;
+  if (/dosierung|überdosis|ueberdosis/.test(t)) return true;
+
+  // 3) Organisatorische / Service-Logistik-Absicht — KEINE Beratung, aus KB
+  //    beantworten. Fängt "Wann kann ich zur Blutabnahme kommen?", Öffnungs-
+  //    zeiten, Vorbereitung (nüchtern), Terminfragen usw. ab.
+  const orgSignals = [
+    "wann", "öffnung", "oeffnung", "sprechzeit", "zeiten", "uhrzeit",
+    "termin", "kommen", "vorbei", "anmeld", "nüchtern", "nuechtern",
+    "mitbringen", "brauche ich", "muss ich", "wie läuft", "wie laeuft",
+    "ablauf", "dauer", "wie lange", "kann ich", "geöffnet", "geoeffnet",
+    "offen", "abholen",
+  ];
+  if (orgSignals.some((k) => t.includes(k))) return false;
+
+  // 4) Verbleibende Behandlungs-Begriffe ohne Org-Kontext → als Beratung werten.
+  const treatmentSignals = ["behandeln", "behandlung", "therapie"];
+  return treatmentSignals.some((k) => t.includes(k));
 }
 
 function isCapabilityQuestion(text: string) {
