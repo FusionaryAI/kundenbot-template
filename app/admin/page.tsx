@@ -18,6 +18,12 @@ export default function AdminPage() {
   const [leadCounts, setLeadCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
+  // Inline email editing state
+  const [emails, setEmails] = useState<Record<string, string>>({});
+  const [savedEmails, setSavedEmails] = useState<Record<string, string>>({});
+  const [emailSaving, setEmailSaving] = useState<Record<string, boolean>>({});
+  const [emailMsg, setEmailMsg] = useState<Record<string, { text: string; ok: boolean }>>({});
+
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -43,22 +49,61 @@ export default function AdminPage() {
 
       if (tenantsData && tenantsData.length > 0) {
         const counts: Record<string, number> = {};
+        const emailMap: Record<string, string> = {};
         await Promise.all(
           tenantsData.map(async (t) => {
-            const { count } = await supabase
-              .from("leads")
-              .select("*", { count: "exact", head: true })
-              .eq("tenant_id", t.id);
+            const [{ count }, { data: settings }] = await Promise.all([
+              supabase
+                .from("leads")
+                .select("*", { count: "exact", head: true })
+                .eq("tenant_id", t.id),
+              supabase
+                .from("tenant_settings")
+                .select("lead_email")
+                .eq("tenant_id", t.id)
+                .single(),
+            ]);
             counts[t.id] = count ?? 0;
+            emailMap[t.id] = settings?.lead_email ?? "";
           })
         );
         setLeadCounts(counts);
+        setEmails(emailMap);
+        setSavedEmails(emailMap);
       }
 
       setLoading(false);
     }
     load();
   }, [router]);
+
+  async function saveEmail(tenantId: string) {
+    const value = (emails[tenantId] ?? "").trim();
+    setEmailSaving((s) => ({ ...s, [tenantId]: true }));
+    setEmailMsg((m) => ({ ...m, [tenantId]: { text: "", ok: true } }));
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+
+    const res = await fetch("/api/admin/tenant-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ tenant_id: tenantId, lead_email: value }),
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: "Netzwerkfehler" }));
+    setEmailSaving((s) => ({ ...s, [tenantId]: false }));
+
+    if (data.ok) {
+      setSavedEmails((e) => ({ ...e, [tenantId]: value }));
+      setEmailMsg((m) => ({ ...m, [tenantId]: { text: "Gespeichert", ok: true } }));
+    } else {
+      setEmailMsg((m) => ({ ...m, [tenantId]: { text: data.error || "Fehler", ok: false } }));
+    }
+    setTimeout(() => setEmailMsg((m) => ({ ...m, [tenantId]: { text: "", ok: true } })), 3000);
+  }
 
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString("de-DE", {
@@ -164,10 +209,15 @@ export default function AdminPage() {
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {tenants.map((tenant) => (
+                {tenants.map((tenant) => {
+                  const current = emails[tenant.id] ?? "";
+                  const saved = savedEmails[tenant.id] ?? "";
+                  const dirty = current.trim() !== saved.trim();
+                  const saving = emailSaving[tenant.id];
+                  const msg = emailMsg[tenant.id];
+                  return (
                   <div
                     key={tenant.id}
-                    onClick={() => router.push(`/admin/${tenant.slug}`)}
                     style={{
                       background: "#fff",
                       border: "0.5px solid rgba(0,0,0,0.08)",
@@ -176,11 +226,15 @@ export default function AdminPage() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      cursor: "pointer",
+                      gap: "16px",
                       transition: "border-color 0.15s",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    {/* Left: clickable → detail */}
+                    <div
+                      onClick={() => router.push(`/admin/${tenant.slug}`)}
+                      style={{ display: "flex", alignItems: "center", gap: "12px", cursor: "pointer", flexShrink: 0, minWidth: "200px" }}
+                    >
                       <div style={{
                         width: "36px",
                         height: "36px",
@@ -203,7 +257,57 @@ export default function AdminPage() {
                         </p>
                       </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+
+                    {/* Middle: inline email editor */}
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: "8px" }}>
+                      <input
+                        type="email"
+                        value={current}
+                        placeholder="E-Mail für Leads & Berichte"
+                        onChange={(e) => setEmails((m) => ({ ...m, [tenant.id]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === "Enter" && dirty && !saving) saveEmail(tenant.id); }}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          background: "#f5f5f3",
+                          color: "#111",
+                          borderRadius: "8px",
+                          padding: "7px 11px",
+                          fontSize: "12.5px",
+                          border: "0.5px solid rgba(0,0,0,0.12)",
+                          outline: "none",
+                        }}
+                      />
+                      <button
+                        onClick={() => saveEmail(tenant.id)}
+                        disabled={!dirty || saving}
+                        style={{
+                          fontSize: "12px",
+                          padding: "7px 12px",
+                          borderRadius: "8px",
+                          border: "none",
+                          background: dirty && !saving ? "#111" : "#e5e5e2",
+                          color: dirty && !saving ? "#fff" : "#aaa",
+                          fontWeight: 500,
+                          cursor: dirty && !saving ? "pointer" : "default",
+                          flexShrink: 0,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {saving ? "..." : "Speichern"}
+                      </button>
+                      {msg?.text && (
+                        <span style={{ fontSize: "11px", color: msg.ok ? "#3B6D11" : "#E24B4A", flexShrink: 0, whiteSpace: "nowrap" }}>
+                          {msg.text}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Right: leads count + arrow */}
+                    <div
+                      onClick={() => router.push(`/admin/${tenant.slug}`)}
+                      style={{ display: "flex", alignItems: "center", gap: "16px", cursor: "pointer", flexShrink: 0 }}
+                    >
                       <div style={{ textAlign: "right" }}>
                         <p style={{ fontSize: "14px", fontWeight: 500, color: "#111" }}>
                           {leadCounts[tenant.id] ?? 0}
@@ -213,7 +317,8 @@ export default function AdminPage() {
                       <span style={{ color: "#ccc", fontSize: "16px" }}>→</span>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
