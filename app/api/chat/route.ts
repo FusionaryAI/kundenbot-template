@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { randomUUID } from "crypto";
 import { supaAdmin } from "@/lib/db";
-import { recordConversationTurn } from "@/lib/analytics";
+import { recordConversationTurn, recordUnansweredQuestion } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 
@@ -834,6 +834,15 @@ export async function POST(req: NextRequest) {
           isFallback: analytics.isFallback,
           openingHours: (tenant as any)?.opening_hours ?? null,
         }).catch((e) => console.error("[chat] analytics:", e));
+
+        // Log the exact unanswered question (the message that hit a fallback),
+        // so the report/dashboard can prompt KB updates. Skip capability/
+        // smalltalk by requiring isFallback (set only on real "can't answer").
+        if (analytics.isFallback) {
+          recordUnansweredQuestion(tenant.id, conversationId, message).catch((e) =>
+            console.error("[chat] unanswered:", e)
+          );
+        }
       }
       return NextResponse.json(out);
     }

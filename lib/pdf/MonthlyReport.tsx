@@ -26,6 +26,7 @@ export type MonthlyReportData = {
   totalLeadsFromChat: number;
 
   topQuestions: Array<{ question: string; count: number }>; // top 3 used
+  topUnansweredQuestions?: Array<{ question: string; count: number }>;
   dailyBreakdown: Array<{ date: string; count: number }>;
 };
 
@@ -40,6 +41,9 @@ const colors = {
   green: "#1a5c3a",       // brand primärgrün (fusionaryai.de)
   greenSecondary: "#2d7a52",
   greenSoft: "#e2ede8",
+  amber: "#85500b",
+  amberSoft: "#faf3e6",
+  amberBorder: "#ecdcc0",
   page: "#ffffff",
 };
 
@@ -162,6 +166,53 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: 6,
   },
+  unansweredBand: {
+    marginTop: 24,
+    backgroundColor: colors.amberSoft,
+    borderWidth: 0.5,
+    borderColor: colors.amberBorder,
+    borderRadius: 6,
+    padding: "16 20 14 20",
+  },
+  unansweredHeading: {
+    fontSize: 8,
+    color: colors.amber,
+    letterSpacing: 2,
+    marginBottom: 4,
+    textTransform: "uppercase",
+    fontFamily: "Helvetica-Bold",
+  },
+  unansweredIntro: {
+    fontSize: 10,
+    color: colors.subtle,
+    lineHeight: 1.4,
+    marginBottom: 10,
+  },
+  unansweredRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 5,
+    paddingBottom: 4,
+    borderBottomWidth: 0.5,
+    borderBottomColor: colors.amberBorder,
+  },
+  unansweredText: {
+    flex: 1,
+    fontSize: 10,
+    color: colors.ink,
+    paddingRight: 8,
+  },
+  unansweredCount: {
+    fontFamily: "Helvetica-Bold",
+    color: colors.amber,
+    fontSize: 10,
+  },
+  unansweredHint: {
+    fontSize: 9,
+    color: colors.amber,
+    marginTop: 8,
+    fontFamily: "Helvetica-Oblique",
+  },
   closing: {
     marginTop: 26,
     paddingTop: 16,
@@ -256,6 +307,7 @@ function Sparkline({
 
 export function MonthlyReport({ data }: { data: MonthlyReportData }) {
   const top3 = data.topQuestions.slice(0, 3);
+  const unanswered = (data.topUnansweredQuestions ?? []).slice(0, 5);
   const maxDay = data.dailyBreakdown.reduce(
     (acc, d) => (d.count > acc.count ? d : acc),
     { date: "", count: 0 }
@@ -356,6 +408,29 @@ export function MonthlyReport({ data }: { data: MonthlyReportData }) {
             </Text>
           </View>
         </View>
+
+        {/* Unanswered questions — incentive to update the KB */}
+        {unanswered.length > 0 && (
+          <View style={styles.unansweredBand} wrap={false}>
+            <Text style={styles.unansweredHeading}>Diese Fragen konnten wir noch nicht beantworten</Text>
+            <Text style={styles.unansweredIntro}>
+              Bei diesen Anliegen fehlten Ihrem Assistenten die Informationen. Wenn Sie diese
+              Themen in Ihrer Wissensdatenbank ergänzen, beantwortet der Bot sie ab sofort
+              automatisch — und fängt noch mehr Anfragen für Sie ab.
+            </Text>
+            {unanswered.map((q, i) => (
+              <View key={i} style={styles.unansweredRow}>
+                <Text style={styles.unansweredText}>
+                  {q.question.length > 64 ? q.question.slice(0, 62) + "…" : q.question}
+                </Text>
+                <Text style={styles.unansweredCount}>{q.count}×</Text>
+              </View>
+            ))}
+            <Text style={styles.unansweredHint}>
+              → Tipp: Ergänzen Sie diese Themen unter „Wissensbasis" in Ihrem Dashboard.
+            </Text>
+          </View>
+        )}
 
         {/* Closing */}
         <View style={styles.closing}>

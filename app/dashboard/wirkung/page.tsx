@@ -35,6 +35,7 @@ type Wirkung = {
   avgSimilarity: number;
   fallbackRate: number;
   topQuestions: Array<{ question: string; count: number }>;
+  topUnansweredQuestions: Array<{ question: string; count: number }>;
   weekOverWeek: { thisWeek: number; lastWeek: number; changePercent: number };
   monthProjection: number;
   dailyBreakdown: Array<{ date: string; count: number }>;
@@ -591,6 +592,61 @@ export default function WirkungPage() {
                   />
                 </div>
               </div>
+
+              {/* Unanswered questions — KB-update incentive */}
+              {data.topUnansweredQuestions && data.topUnansweredQuestions.length > 0 && (
+                <div
+                  style={{
+                    background: colors.surface,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 10,
+                    padding: "20px 22px",
+                  }}
+                >
+                  <p style={{ fontSize: 13, color: colors.amber, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 4, fontWeight: 600 }}>
+                    Wissenslücken
+                  </p>
+                  <p
+                    style={{
+                      fontFamily: "var(--font-instrument-serif), Georgia, serif",
+                      fontSize: 20,
+                      color: colors.text,
+                      marginBottom: 8,
+                    }}
+                  >
+                    Diese Fragen konnte Ihr Assistent nicht beantworten
+                  </p>
+                  <p style={{ fontSize: 13, color: colors.muted, marginBottom: 16, lineHeight: 1.5, maxWidth: 620 }}>
+                    Ergänzen Sie diese Themen in Ihrer{" "}
+                    <a href="/dashboard/knowledge" style={{ color: colors.green, fontWeight: 500 }}>Wissensbasis</a>
+                    {" "}— dann beantwortet der Bot sie ab sofort automatisch und fängt noch mehr Anfragen ab.
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {data.topUnansweredQuestions.map((q, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 12,
+                          padding: "10px 14px",
+                          background: "#faf3e6",
+                          border: "1px solid #ecdcc0",
+                          borderRadius: 8,
+                        }}
+                      >
+                        <span style={{ fontSize: 13.5, color: colors.text, flex: 1, minWidth: 0 }}>
+                          {q.question}
+                        </span>
+                        <span style={{ fontSize: 12.5, color: colors.amber, fontWeight: 600, flexShrink: 0 }}>
+                          {q.count}× gefragt
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Projection banner */}
               {data.monthProjection > 0 && (

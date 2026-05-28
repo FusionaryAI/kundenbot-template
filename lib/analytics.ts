@@ -95,6 +95,29 @@ export async function recordConversationTurn(input: RecordTurnInput): Promise<vo
   }
 }
 
+// Logs the exact question that the bot could not answer (fallback), so the
+// monthly report + dashboard can prompt the customer to update their KB.
+// Best-effort; never blocks the chat reply.
+export async function recordUnansweredQuestion(
+  tenantId: string,
+  conversationId: string | null,
+  question: string
+): Promise<void> {
+  if (!tenantId) return;
+  const q = (question ?? "").trim();
+  if (!q || q.length < 2) return;
+  try {
+    const { error } = await supaAdmin.from("unanswered_questions").insert({
+      tenant_id: tenantId,
+      conversation_id: conversationId,
+      question: q.slice(0, 500),
+    });
+    if (error) console.error("[analytics] unanswered insert error:", error);
+  } catch (e) {
+    console.error("[analytics] unanswered unexpected:", e);
+  }
+}
+
 // Called from /api/leads after a successful insert. Marks the originating
 // conversation as having converted.
 export async function markConversationAsLead(

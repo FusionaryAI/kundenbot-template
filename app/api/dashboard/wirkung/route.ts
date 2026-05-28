@@ -135,6 +135,30 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
+    // Unanswered questions (fallback-triggering) in the range, grouped + ranked
+    const { data: unansweredRows } = await supaAdmin
+      .from("unanswered_questions")
+      .select("question, created_at")
+      .eq("tenant_id", tenantId)
+      .gte("created_at", from.toISOString())
+      .lte("created_at", to.toISOString())
+      .order("created_at", { ascending: false })
+      .limit(2000);
+
+    const unansweredCounts = new Map<string, { question: string; count: number }>();
+    for (const r of unansweredRows ?? []) {
+      const q = (r.question ?? "").trim();
+      if (!q) continue;
+      const key = normalizeQuestion(q);
+      if (!key) continue;
+      const existing = unansweredCounts.get(key);
+      if (existing) existing.count += 1;
+      else unansweredCounts.set(key, { question: q, count: 1 });
+    }
+    const topUnansweredQuestions = [...unansweredCounts.values()]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
     // Daily breakdown
     const dailyMap = new Map<string, number>();
     for (const r of data) {
@@ -192,6 +216,7 @@ export async function GET(req: NextRequest) {
       avgSimilarity,
       fallbackRate,
       topQuestions,
+      topUnansweredQuestions,
       weekOverWeek: { thisWeek, lastWeek, changePercent },
       monthProjection,
       dailyBreakdown,
