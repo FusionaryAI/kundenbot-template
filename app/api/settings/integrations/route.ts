@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supaAdmin } from "@/lib/db";
+import { requireTenantAccess } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,9 @@ export async function POST(req: NextRequest) {
     if (!tenant_id) {
       return NextResponse.json({ ok: false, error: "tenant_id erforderlich" }, { status: 400 });
     }
+
+    const gate = await requireTenantAccess(req, tenant_id);
+    if ("error" in gate) return gate.error;
 
     const { error } = await supaAdmin
       .from("tenant_settings")

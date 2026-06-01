@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supaAdmin } from "@/lib/db";
+import { requireTenantAccess } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
 
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     const { data: lead, error: fetchError } = await supaAdmin
       .from("leads")
-      .select("metadata")
+      .select("metadata, tenant_id")
       .eq("id", id)
       .single();
 
@@ -27,6 +28,9 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       );
     }
+
+    const gate = await requireTenantAccess(req, lead.tenant_id);
+    if ("error" in gate) return gate.error;
 
     const updatedMetadata = {
       ...(lead.metadata ?? {}),

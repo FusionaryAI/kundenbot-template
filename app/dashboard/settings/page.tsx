@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { authedFetch } from "@/lib/api-client";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { useAuth } from "@/hooks/useAuth";
@@ -94,7 +95,7 @@ export default function SettingsPage() {
     setSaving(true);
     setSaveMsg("");
 
-    const res = await fetch("/api/settings/integrations", {
+    const res = await authedFetch("/api/settings/integrations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -121,7 +122,7 @@ export default function SettingsPage() {
     setWirkungSaving(true);
     setWirkungMsg("");
 
-    const res = await fetch("/api/settings/wirkung", {
+    const res = await authedFetch("/api/settings/wirkung", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

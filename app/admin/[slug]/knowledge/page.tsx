@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { authedFetch } from "@/lib/api-client";
 import { useRouter, useParams } from "next/navigation";
 
 type KnowledgeItem = {
@@ -76,7 +77,7 @@ export default function KnowledgePage() {
     setAdding(true);
     setAddMsg("");
 
-    const res = await fetch("/api/knowledge/add", {
+    const res = await authedFetch("/api/knowledge/add", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -111,7 +112,7 @@ export default function KnowledgePage() {
     if (!confirm("Diesen Eintrag wirklich löschen?")) return;
     setDeleting(id);
 
-    const res = await fetch("/api/knowledge/delete", {
+    const res = await authedFetch("/api/knowledge/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),

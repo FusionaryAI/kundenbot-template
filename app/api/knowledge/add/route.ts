@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supaAdmin } from "@/lib/db";
+import { requireTenantAccess } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,11 @@ export async function POST(req: NextRequest) {
         { ok: false, error: "tenant_id und content sind erforderlich" },
         { status: 400 }
       );
+    }
+
+    {
+      const gate = await requireTenantAccess(req, tenant_id);
+      if ("error" in gate) return gate.error;
     }
 
     // 1. Knowledge Item speichern

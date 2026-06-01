@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supaAdmin } from "@/lib/db";
+import { requireTenantAccess } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
 
@@ -46,6 +47,9 @@ export async function GET(req: NextRequest) {
     if (!tenantId) {
       return NextResponse.json({ ok: false, error: "tenant_id required" }, { status: 400 });
     }
+
+    const gate = await requireTenantAccess(req, tenantId);
+    if ("error" in gate) return gate.error;
 
     const now = new Date();
     const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { authedFetch } from "@/lib/api-client";
 import Sidebar from "@/components/Sidebar";
 
 export default function NewTenantPage() {
@@ -35,7 +36,7 @@ export default function NewTenantPage() {
     setSaving(true);
     setMsg("");
 
-    const res = await fetch("/api/admin/create-tenant", {
+    const res = await authedFetch("/api/admin/create-tenant", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { authedFetch } from "@/lib/api-client";
 import { useRouter, useParams } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 
@@ -382,7 +383,7 @@ export default function TenantDetailPage() {
                     if (!tenant || !newUserEmail || !newUserPassword) return;
                     setCreatingUser(true);
                     setCreateUserMsg("");
-                    const res = await fetch("/api/create-client-user", {
+                    const res = await authedFetch("/api/create-client-user", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({

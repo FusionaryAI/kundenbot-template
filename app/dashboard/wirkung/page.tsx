@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useAuth } from "@/hooks/useAuth";
+import { authedFetch } from "@/lib/api-client";
 import {
   ResponsiveContainer,
   LineChart,
@@ -212,7 +213,7 @@ export default function WirkungPage() {
       from: range.from,
       to: range.to,
     }).toString();
-    fetch(`/api/dashboard/wirkung?${qs}`)
+    authedFetch(`/api/dashboard/wirkung?${qs}`)
       .then((r) => r.json())
       .then((json: Wirkung & { ok: boolean; error?: string }) => {
         if (!json.ok) {

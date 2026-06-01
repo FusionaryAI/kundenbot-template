@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
+import { requireSuperAdmin } from "@/lib/auth-server";
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = await requireSuperAdmin(req);
+    if ("error" in gate) return gate.error;
+
     const body = await req.json();
     const to = (body?.to || "").trim();
     if (!to) {

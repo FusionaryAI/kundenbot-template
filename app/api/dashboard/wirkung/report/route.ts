@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supaAdmin } from "@/lib/db";
+import { requireTenantAccess } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,9 @@ export async function GET(req: NextRequest) {
     if (!tenantId) {
       return NextResponse.json({ ok: false, error: "tenant_id required" }, { status: 400 });
     }
+
+    const gate = await requireTenantAccess(req, tenantId);
+    if ("error" in gate) return gate.error;
 
     // Default: last full calendar month. Override via ?month=YYYY-MM (e.g. 2026-04).
     const now = new Date();
