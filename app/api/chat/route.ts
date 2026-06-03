@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { supaAdmin } from "@/lib/db";
 import { recordConversationTurn, recordUnansweredQuestion } from "@/lib/analytics";
 import { resolveVertical } from "@/lib/verticals/registry";
+import { getIntegration, integrationsForVertical } from "@/lib/integrations/registry";
 
 export const runtime = "nodejs";
 
@@ -171,6 +172,40 @@ async function getTenantSettings(tenantId: string): Promise<TenantSettings> {
     };
   }
   return data as TenantSettings;
+}
+
+// Buchungs-Deeplink (z.B. Doctolib) für einen Termin-Vorschlag, falls der
+// Tenant eine passende Integration aktiv hat. Macht keinen DB-Zugriff, wenn das
+// Vertical gar keine Buchungs-Integration anbietet (z.B. base).
+async function getBookingLink(
+  tenantId: string,
+  verticalId: string,
+  ctx: { appointment_topic?: string | null; appointment_window?: string | null },
+): Promise<string | null> {
+  const candidates = integrationsForVertical(verticalId).filter((a) => a.bookingLink);
+  if (candidates.length === 0) return null;
+
+  const { data } = await supaAdmin
+    .from("tenant_integrations")
+    .select("integration, config")
+    .eq("tenant_id", tenantId)
+    .eq("enabled", true)
+    .in("integration", candidates.map((c) => c.id));
+
+  for (const row of data ?? []) {
+    const adapter = getIntegration(row.integration as string);
+    if (!adapter?.bookingLink) continue;
+    const parsed = adapter.configSchema.safeParse(row.config ?? {});
+    if (!parsed.success) continue;
+    const link = adapter.bookingLink(parsed.data, ctx);
+    if (link) return link;
+  }
+  return null;
+}
+
+function appendBookingHint(text: string, link: string | null): string {
+  if (!link) return text;
+  return `${text}\n\nSie können auch direkt online einen Termin buchen: ${link}`;
 }
 
 // --------------------
@@ -814,8 +849,12 @@ export async function POST(req: NextRequest) {
           offered_at_ts: now, message: message.trim(),
           page_context: handoff.page_context ?? context ?? null,
         };
+        const bookingLink =
+          guard.handoffLeadType === "appointment"
+            ? await getBookingLink(tenant.id, profile.id, { appointment_topic: message.trim(), appointment_window: null })
+            : null;
         return respond({
-          text: `${guard.safetyFallback}\n\n${guard.handoffPrompt}`,
+          text: appendBookingHint(`${guard.safetyFallback}\n\n${guard.handoffPrompt}`, bookingLink),
           welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
           from_kb: false,
@@ -1169,12 +1208,16 @@ export async function POST(req: NextRequest) {
         active: false, completed: false, stage: "offered", lead_type: ruleLeadType,
         offered_at_ts: now, page_context: handoff.page_context ?? context ?? null,
       };
-      const offerText =
+      let offerText =
         ruleLeadType === "appointment"
           ? "Möchten Sie, dass ich eine Terminanfrage ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten und den Terminwunsch auf."
           : ruleLeadType === "callback"
             ? "Möchten Sie, dass ich eine Rückrufbitte ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten und das Thema auf."
             : "Möchten Sie, dass ich Ihre Anfrage direkt ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten auf.";
+      if (ruleLeadType === "appointment") {
+        const link = await getBookingLink(tenant.id, profile.id, { appointment_topic: message.trim(), appointment_window: null });
+        offerText = appendBookingHint(offerText, link);
+      }
       return respond({
         text: offerText,
         welcome_message: settings.welcome_message,
@@ -1308,12 +1351,16 @@ export async function POST(req: NextRequest) {
           lead_type: analysis.lead_type, offered_at_ts: now,
           page_context: handoff.page_context ?? context ?? null,
         };
-        const offerText =
+        let offerText =
           analysis.lead_type === "appointment"
             ? "Möchten Sie, dass ich eine Terminanfrage ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten und den Terminwunsch auf."
             : analysis.lead_type === "callback"
               ? "Möchten Sie, dass ich eine Rückrufbitte ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten und das Thema auf."
               : "Möchten Sie, dass ich Ihre Anfrage direkt ans Team weiterleite? Dann nehme ich kurz Ihre Kontaktdaten auf.";
+        if (analysis.lead_type === "appointment") {
+          const link = await getBookingLink(tenant.id, profile.id, { appointment_topic: message.trim(), appointment_window: null });
+          offerText = appendBookingHint(offerText, link);
+        }
         return respond({
           text: offerText,
           welcome_message: settings.welcome_message,
