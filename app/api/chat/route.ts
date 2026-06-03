@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { randomUUID } from "crypto";
 import { supaAdmin } from "@/lib/db";
 import { recordConversationTurn, recordUnansweredQuestion } from "@/lib/analytics";
+import { resolveVertical } from "@/lib/verticals/registry";
 
 export const runtime = "nodejs";
 
@@ -59,11 +60,6 @@ const HIGH_CONF_SIM = 0.45;
 const MID_CONF_SIM = 0.35;
 const MARGIN_CONF = 0.08;
 
-const MEDICAL_SAFETY_FALLBACK =
-  "Ich kann keine medizinische Beratung, Diagnose oder Behandlung durchführen. " +
-  "Für eine medizinische Einschätzung wenden Sie sich bitte direkt an die Praxis oder den Notdienst. " +
-  "Gern nenne ich Ihnen Praxisinfos (Öffnungszeiten, Kontakt, Leistungen laut Website).";
-
 // --------------------
 // Helpers
 // --------------------
@@ -113,70 +109,6 @@ function messageFromMessages(body: any): string {
   return "";
 }
 
-function isMedicalTenant(tenantName: string, context: PageContext | null) {
-  const s = `${tenantName || ""} ${context?.tenant_label || ""}`.toLowerCase();
-  return (
-    s.includes("arzt") ||
-    s.includes("praxis") ||
-    s.includes("medizin") ||
-    s.includes("zahnarzt") ||
-    s.includes("klinik") ||
-    s.includes("therapie") ||
-    s.includes("physio") ||
-    s.includes("apotheke")
-  );
-}
-
-function looksLikeMedicalAdviceQuestion(text: string) {
-  const t = (text || "").toLowerCase();
-
-  // Capability questions ("was kannst du") are never medical advice.
-  const isCapabilityQuestion =
-    t.includes("was kannst du") ||
-    t.includes("was kann der assistent") ||
-    t.includes("wobei kannst du helfen") ||
-    t.includes("wie kannst du helfen") ||
-    t.includes("was machst du");
-  if (isCapabilityQuestion) return false;
-
-  // 1) Starke Beratungssignale — blocken auch bei organisatorischer Formulierung.
-  //    Ich-Symptom-Beschreibungen, konkrete Symptome, Diagnose-/Hilfe-Suche.
-  const strongAdviceSignals = [
-    "ich habe", "ich hab", "mir ist", "mir geht", "ich fühle", "ich fuehle",
-    "ich leide", "ich spüre", "ich spuere",
-    "symptom", "schmerz", "fieber", "husten", "durchfall", "übelkeit", "uebelkeit",
-    "schwindel", "ausschlag", "entzündung", "entzuendung", "krampf", "atemnot",
-    "brustschmerz", "blut im", "blut beim", "blut erbrechen",
-    "diagnose", "was hilft gegen", "was soll ich tun", "was kann ich tun gegen",
-    "ist das schlimm", "ist das gefährlich", "ist das gefaehrlich",
-    "wechselwirkung", "schwanger", "stillen", "notfall",
-  ];
-  if (strongAdviceSignals.some((k) => t.includes(k))) return true;
-
-  // 2) Medikamenten-Einnahme / Dosierung — blocken auch bei "wann/wie viel".
-  const mentionsMedication =
-    /medikament|tablette|tropfen|salbe|zäpfchen|zaepfchen|ibuprofen|paracetamol|antibiotika|aspirin/.test(t);
-  const intakeOrDose = /nehmen|einnehmen|dosis|dosier|wie oft|wie viel|auftragen/.test(t);
-  if (mentionsMedication && intakeOrDose) return true;
-  if (/dosierung|überdosis|ueberdosis/.test(t)) return true;
-
-  // 3) Organisatorische / Service-Logistik-Absicht — KEINE Beratung, aus KB
-  //    beantworten. Fängt "Wann kann ich zur Blutabnahme kommen?", Öffnungs-
-  //    zeiten, Vorbereitung (nüchtern), Terminfragen usw. ab.
-  const orgSignals = [
-    "wann", "öffnung", "oeffnung", "sprechzeit", "zeiten", "uhrzeit",
-    "termin", "kommen", "vorbei", "anmeld", "nüchtern", "nuechtern",
-    "mitbringen", "brauche ich", "muss ich", "wie läuft", "wie laeuft",
-    "ablauf", "dauer", "wie lange", "kann ich", "geöffnet", "geoeffnet",
-    "offen", "abholen",
-  ];
-  if (orgSignals.some((k) => t.includes(k))) return false;
-
-  // 4) Verbleibende Behandlungs-Begriffe ohne Org-Kontext → als Beratung werten.
-  const treatmentSignals = ["behandeln", "behandlung", "therapie"];
-  return treatmentSignals.some((k) => t.includes(k));
-}
-
 function isCapabilityQuestion(text: string) {
   const t = (text || "").trim().toLowerCase();
   const patterns = [
@@ -202,37 +134,12 @@ function isContactInfoQuestion(text: string) {
   return contactIntents.some((k) => t.includes(k));
 }
 
-function appendSoftHandoffHint(text: string, leadEnabled: boolean, medicalTenant: boolean) {
+function appendSoftHandoffHint(text: string, leadEnabled: boolean, hint: string) {
   if (!leadEnabled) return text;
-  const hint = medicalTenant
-    ? "\n\nWenn Sie möchten, kann ich auch eine **Terminanfrage / Rückrufbitte** aufnehmen und an das Team weiterleiten."
-    : "\n\nWenn Sie möchten, kann ich Ihre Anfrage auch **ans Team weiterleiten**.";
   const lower = (text || "").toLowerCase();
   if (lower.includes("weiterleiten") || lower.includes("rückruf") || lower.includes("terminanfrage"))
     return text;
   return `${text}${hint}`;
-}
-
-function buildCapabilityAnswer(params: { tenantName: string; medicalTenant: boolean }): string {
-  if (params.medicalTenant) {
-    return (
-      `Ich bin der digitale Assistent der Praxis „${params.tenantName}" und helfe Ihnen mit Praxis-Informationen.\n\n` +
-      `**Das kann ich für Sie tun:**\n` +
-      `- Öffnungszeiten, telefonische Erreichbarkeit, Adresse & Anfahrt\n` +
-      `- Kontaktmöglichkeiten (Telefon/E-Mail) und organisatorische Fragen\n` +
-      `- Leistungen/Angebote **laut Website** (ohne medizinische Bewertung)\n` +
-      `- Terminanfrage oder Rückrufwunsch aufnehmen und ans Team weiterleiten\n\n` +
-      `**Wichtig:** Ich gebe **keine medizinische Beratung/Diagnosen/Therapie- oder Dosierungsempfehlungen**.`
-    );
-  }
-  return (
-    `Ich bin der digitale Assistent von „${params.tenantName}".\n\n` +
-    `**Das kann ich für Sie tun:**\n` +
-    `- Fragen zu Öffnungszeiten, Kontakt, Standort und organisatorischen Abläufen\n` +
-    `- Informationen aus den hinterlegten Unternehmensinhalten (Website/FAQ)\n` +
-    `- Wenn etwas unklar ist: Ihre Anfrage aufnehmen und ans Team weiterleiten\n\n` +
-    `**Hinweis:** Ich ersetze keine fachliche Beratung (z. B. rechtlich/medizinisch/finanziell).`
-  );
 }
 
 // --------------------
@@ -410,8 +317,7 @@ ${params.kbBullets}
 
 async function detectOffTopicAndDeflect(params: {
   message: string;
-  tenantName: string;
-  medicalTenant: boolean;
+  role: string;
   history: Array<{ role: "user" | "assistant"; content: string }>;
 }): Promise<{ off_topic: boolean; answer: string | null }> {
   const hist = params.history.slice(-4);
@@ -420,9 +326,7 @@ async function detectOffTopicAndDeflect(params: {
       ? `\nLetzte Gespraechsturns:\n${hist.map((m) => `${m.role === "user" ? "Nutzer" : "Bot"}: ${m.content}`).join("\n")}\n`
       : "";
 
-  const role = params.medicalTenant
-    ? `digitaler Assistent der Praxis "${params.tenantName}". Aufgabenbereich: Praxisinfos (Oeffnungszeiten, Kontakt, Adresse, Leistungen laut Website, Terminanfragen).`
-    : `digitaler Assistent des Unternehmens "${params.tenantName}". Aufgabenbereich: Unternehmensinfos aus Website/FAQ (Leistungen, Kontakt, Oeffnungszeiten, organisatorische Fragen).`;
+  const role = params.role;
 
   const prompt = `
 Du pruefst, ob eine Nachricht zum Aufgabenbereich eines Bots gehoert.
@@ -879,19 +783,16 @@ export async function POST(req: NextRequest) {
 
     if (!leadEnabled) handoff = { active: false, completed: false };
 
-    const medicalTenant = isMedicalTenant(tenant.name, handoff.page_context ?? context ?? null);
+    // Branchen-Profil laden — bestimmt Guardrails, Safety-Texte, Capability-
+    // Antwort. Ersetzt die frühere hart verdrahtete medicalTenant-Logik.
+    const profile = resolveVertical(tenant, handoff.page_context ?? context ?? null);
     const contactInfo = isContactInfoQuestion(message);
 
-    const safetyHint = medicalTenant
-      ? `- Du führst keine medizinische Beratung/Diagnose/Behandlung durch und gibst keine Dosierungs- oder Therapieempfehlungen.
-- Du darfst Leistungen der Praxis nur als "die Praxis bietet laut Website ..." beschreiben.
-- Wenn eine Frage nach Symptomen/Behandlung/Medikation/Diagnose klingt: antworte kurz mit Hinweis + biete Termin-/Kontaktweiterleitung an.`
-      : `- Du gibst keine rechtliche/medizinische/finanzielle Fachberatung.
-- Du kannst Informationen aus dem Unternehmenswissen wiedergeben und bei Bedarf an das Team weiterleiten.`;
+    const safetyHint = profile.safetyHint;
 
     if (isCapabilityQuestion(message)) {
       return respond({
-        text: buildCapabilityAnswer({ tenantName: tenant.name, medicalTenant }),
+        text: profile.capabilityAnswer(tenant.name),
         welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
         from_kb: false,
@@ -899,7 +800,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (medicalTenant && looksLikeMedicalAdviceQuestion(message)) {
+    if (profile.adviceGuardrail && profile.adviceGuardrail.matches(message)) {
+      const guard = profile.adviceGuardrail;
       const now = Date.now();
       const offeredRecently =
         handoff.stage === "offered"
@@ -908,12 +810,12 @@ export async function POST(req: NextRequest) {
 
       if (leadEnabled && !handoff.completed && !offeredRecently) {
         handoff = {
-          active: false, completed: false, stage: "offered", lead_type: "appointment",
+          active: false, completed: false, stage: "offered", lead_type: guard.handoffLeadType,
           offered_at_ts: now, message: message.trim(),
           page_context: handoff.page_context ?? context ?? null,
         };
         return respond({
-          text: MEDICAL_SAFETY_FALLBACK + "\n\nSoll ich Ihre Anfrage an das Team weiterleiten und eine Terminanfrage aufnehmen?",
+          text: `${guard.safetyFallback}\n\n${guard.handoffPrompt}`,
           welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
           from_kb: false,
@@ -922,7 +824,7 @@ export async function POST(req: NextRequest) {
       }
       analytics.isFallback = true;
       return respond({
-        text: MEDICAL_SAFETY_FALLBACK,
+        text: guard.safetyFallback,
         welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
         from_kb: false,
@@ -1335,8 +1237,7 @@ export async function POST(req: NextRequest) {
       try {
         const deflect = await detectOffTopicAndDeflect({
           message,
-          tenantName: tenant.name,
-          medicalTenant,
+          role: profile.offTopicRole(tenant.name),
           history: chatHistory,
         });
         if (deflect.off_topic && deflect.answer) {
@@ -1439,7 +1340,7 @@ export async function POST(req: NextRequest) {
         }
         if (analysis.answer && analysis.answer.length > 0) {
           let out = analysis.answer;
-          if (contactInfo) out = appendSoftHandoffHint(out, leadEnabled, medicalTenant);
+          if (contactInfo) out = appendSoftHandoffHint(out, leadEnabled, profile.softHandoffHint);
           return respond({
             text: out,
             welcome_message: settings.welcome_message,
@@ -1468,8 +1369,7 @@ export async function POST(req: NextRequest) {
 ${kbBullets}
 ${pageHint}
 WICHTIG:
-- Antworte nur auf Basis dieses Wissens.
-- Wenn es um medizinische Themen geht: formuliere ausschließlich als "Die Praxis bietet laut Website ..." und gib keine medizinische Beratung/Diagnose/Behandlungsempfehlungen.`,
+${profile.kbAnswerInstruction}`,
         },
         { role: "assistant", content: "Verstanden. Ich beantworte Fragen ausschließlich auf Basis dieser Informationen." },
         ...history,
@@ -1480,20 +1380,16 @@ WICHTIG:
     let text = completion.choices[0]?.message?.content ?? settings.fallback_message;
     if (!completion.choices[0]?.message?.content) analytics.isFallback = true;
 
-    if (medicalTenant) {
+    if (profile.adviceGuardrail) {
+      const guard = profile.adviceGuardrail;
       const t = text.toLowerCase();
-      const unsafeClaims = [
-        "ich behandle", "ich diagnostiziere", "ich empfehle", "ich rate ihnen",
-        "nehmen sie", "dosierung", "therapieplan",
-        "ich kann sie behandeln", "ich kann ihnen eine therapie",
-      ];
-      if (unsafeClaims.some((k) => t.includes(k))) {
-        text = MEDICAL_SAFETY_FALLBACK;
+      if (guard.unsafeClaims.some((k) => t.includes(k))) {
+        text = guard.safetyFallback;
         analytics.isFallback = true;
       }
     }
 
-    if (contactInfo) text = appendSoftHandoffHint(text, leadEnabled, medicalTenant);
+    if (contactInfo) text = appendSoftHandoffHint(text, leadEnabled, profile.softHandoffHint);
 
     return respond({
       text,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supaAdmin } from "@/lib/db";
 import { requireSuperAdmin } from "@/lib/auth-server";
+import { getVertical } from "@/lib/verticals/registry";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,7 @@ export async function POST(req: NextRequest) {
     const {
       name,
       slug,
+      vertical,
       welcome_message,
       fallback_message,
       lead_email,
@@ -26,6 +28,19 @@ export async function POST(req: NextRequest) {
         { ok: false, error: "Pflichtfelder fehlen" },
         { status: 400 }
       );
+    }
+
+    // Vertical optional. Leer = NULL → Chat-Handler nutzt die Namens-Heuristik.
+    // Gesetzt muss es ein bekanntes Profil sein.
+    let verticalValue: string | null = null;
+    if (vertical) {
+      if (!getVertical(vertical)) {
+        return NextResponse.json(
+          { ok: false, error: `Unbekannte Branche: ${vertical}` },
+          { status: 400 }
+        );
+      }
+      verticalValue = getVertical(vertical)!.id;
     }
 
     // 1. Prüfen ob Slug bereits existiert
@@ -45,7 +60,7 @@ export async function POST(req: NextRequest) {
     // 2. Tenant anlegen
     const { data: tenant, error: tenantError } = await supaAdmin
       .from("tenants")
-      .insert({ name, slug })
+      .insert({ name, slug, vertical: verticalValue })
       .select("id")
       .single();
 
