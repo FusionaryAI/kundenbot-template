@@ -8,6 +8,7 @@ export type Tenant = {
   id: string;
   name: string;
   slug: string;
+  vertical?: string | null;
 };
 
 export type AuthState = {
@@ -41,11 +42,11 @@ export function useAuth(): AuthState {
       // Fall back to the first tenant only for super_admins without a link.
       if (roleData.tenant_id) {
         const { data: tenantData } = await supabase
-          .from("tenants").select("id, name, slug").eq("id", roleData.tenant_id).single();
+          .from("tenants").select("id, name, slug, vertical").eq("id", roleData.tenant_id).single();
         if (tenantData) setTenant(tenantData);
       } else if (roleData.role === "super_admin") {
         const { data: firstTenant } = await supabase
-          .from("tenants").select("id, name, slug").limit(1).single();
+          .from("tenants").select("id, name, slug, vertical").limit(1).single();
         if (firstTenant) setTenant(firstTenant);
       }
 

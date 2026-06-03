@@ -13,7 +13,13 @@ type Config = z.infer<typeof configSchema>;
 
 export const doctolibAdapter: IntegrationAdapter<Config> = {
   id: "doctolib",
-  label: "Doctolib (Online-Terminbuchung)",
+  label: "Doctolib",
+  description: "Buchungslink im Chat anbieten, wenn ein Termin gewünscht ist",
+  icon: "📅",
+  setupHint: "Die öffentliche Buchungs-URL Ihres Doctolib-Profils (doctolib.de/...)",
+  fields: [
+    { key: "booking_url", label: "Buchungs-URL", placeholder: "https://www.doctolib.de/praxis/..." },
+  ],
   verticals: ["praxis"],
   configSchema,
 
