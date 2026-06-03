@@ -15,6 +15,12 @@ function leadTypeLabel(type: string) {
 export const slackAdapter: IntegrationAdapter<Config> = {
   id: "slack",
   label: "Slack",
+  description: "Neue Leads als Slack-Nachricht erhalten",
+  icon: "💬",
+  setupHint: "Einrichten unter: Slack → Apps → Incoming Webhooks",
+  fields: [
+    { key: "webhook_url", label: "Webhook URL", placeholder: "https://hooks.slack.com/services/..." },
+  ],
   verticals: "all",
   configSchema,
 

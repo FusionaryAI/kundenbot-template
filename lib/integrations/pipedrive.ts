@@ -9,6 +9,12 @@ type Config = z.infer<typeof configSchema>;
 export const pipedriveAdapter: IntegrationAdapter<Config> = {
   id: "pipedrive",
   label: "Pipedrive",
+  description: "Leads direkt in Pipedrive-Pipeline eintragen",
+  icon: "🔵",
+  setupHint: "Einrichten unter: Pipedrive → Einstellungen → Persönliche Einstellungen → API",
+  fields: [
+    { key: "api_key", label: "API Token", placeholder: "API Token aus Pipedrive Einstellungen", secret: true },
+  ],
   verticals: "all",
   configSchema,
 

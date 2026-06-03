@@ -9,6 +9,12 @@ type Config = z.infer<typeof configSchema>;
 export const hubspotAdapter: IntegrationAdapter<Config> = {
   id: "hubspot",
   label: "HubSpot",
+  description: "Leads automatisch als Kontakte anlegen",
+  icon: "🔶",
+  setupHint: "Einrichten unter: HubSpot → Einstellungen → Integrationen → Private Apps",
+  fields: [
+    { key: "api_key", label: "Private App Token", placeholder: "pat-eu1-...", secret: true },
+  ],
   verticals: "all",
   configSchema,
 

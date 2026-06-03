@@ -21,6 +21,17 @@ export type LeadPayload = {
 
 export type IntegrationResult = { ok: boolean; [key: string]: unknown };
 
+/** Beschreibt ein Config-Feld für das Admin-Formular (treibt das UI generisch). */
+export type ConfigField = {
+  /** Schlüssel in config (muss zum configSchema passen). */
+  key: string;
+  label: string;
+  placeholder?: string;
+  help?: string;
+  /** Als Passwort-Feld rendern (API-Keys, Tokens). */
+  secret?: boolean;
+};
+
 /** Kontext für Buchungslinks (z.B. um den Terminanlass vorzubefüllen). */
 export type BookingContext = {
   appointment_topic?: string | null;
@@ -32,6 +43,14 @@ export interface IntegrationAdapter<Config = Record<string, unknown>> {
   id: string;
   /** Anzeigename für Admin-UIs. */
   label: string;
+  /** Kurzbeschreibung für die Admin-Karte (was bewirkt die Integration?). */
+  description: string;
+  /** Emoji/Icon für die Admin-Karte. */
+  icon: string;
+  /** Hinweis, wo der Kunde die Zugangsdaten findet. */
+  setupHint?: string;
+  /** Config-Felder, die das Admin-Formular rendert. */
+  fields: ConfigField[];
   /** Welche Verticals diese Integration anbieten dürfen ("all" = alle). */
   verticals: string[] | "all";
   /** Validiert die pro-Tenant gespeicherte Config (tenant_integrations.config). */
