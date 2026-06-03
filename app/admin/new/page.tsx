@@ -5,12 +5,16 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { authedFetch } from "@/lib/api-client";
 import Sidebar from "@/components/Sidebar";
+import { listVerticals } from "@/lib/verticals/registry";
+
+const VERTICAL_OPTIONS = listVerticals().map((v) => ({ id: v.id, label: v.label }));
 
 export default function NewTenantPage() {
   const router = useRouter();
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [vertical, setVertical] = useState("");
   const [welcomeMsg, setWelcomeMsg] = useState("Hallo! Wie kann ich Ihnen helfen?");
   const [fallbackMsg, setFallbackMsg] = useState("Dazu habe ich leider keine Informationen. Soll ich Ihre Anfrage ans Team weiterleiten?");
   const [leadEmail, setLeadEmail] = useState("");
@@ -41,6 +45,7 @@ export default function NewTenantPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name, slug,
+        vertical: vertical || null,
         welcome_message: welcomeMsg,
         fallback_message: fallbackMsg,
         lead_email: leadEmail,
@@ -157,6 +162,25 @@ export default function NewTenantPage() {
                 />
                 <p style={{ fontSize: "10.5px", color: "#bbb", marginTop: "4px" }}>
                   Bot-URL: /embed/{slug || "..."}
+                </p>
+              </div>
+              <div>
+                <label style={labelStyle}>Branche / Bot-Profil</label>
+                <select
+                  value={vertical}
+                  onChange={(e) => setVertical(e.target.value)}
+                  style={inputStyle}
+                  onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
+                  onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
+                >
+                  <option value="">Automatisch (anhand des Namens erkennen)</option>
+                  {VERTICAL_OPTIONS.map((v) => (
+                    <option key={v.id} value={v.id}>{v.label}</option>
+                  ))}
+                </select>
+                <p style={{ fontSize: "10.5px", color: "#bbb", marginTop: "4px" }}>
+                  Bestimmt Guardrails &amp; Verhalten. „Automatisch&ldquo; nutzt die Namens-Heuristik
+                  (z.B. „Praxis&ldquo; → Arzt-Profil).
                 </p>
               </div>
             </div>
