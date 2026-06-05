@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { useAuth } from "@/hooks/useAuth";
+import { t, glass, topbar, DashboardShell, leadTypeStyle, statusStyleDark } from "@/lib/dashboardTheme";
 
 type Lead = {
   id: string;
@@ -50,28 +51,20 @@ export default function LeadsPage() {
     });
   }
 
-  function leadTypLabel(t: string) {
-    if (t === "appointment") return "Termin";
-    if (t === "callback") return "Rückruf";
-    return "Kontakt";
+  function leadTypLabel(type: string) {
+    return leadTypeStyle(type).label;
   }
 
-  function leadTypColor(t: string) {
-    if (t === "appointment") return { bg: "#e2ede8", color: "#1a5c3a", bar: "#1a5c3a" };
-    if (t === "callback") return { bg: "#fff4e6", color: "#b36000", bar: "#f0a030" };
-    return { bg: "#f5f5f5", color: "#888", bar: "#ddd" };
+  function leadTypColor(type: string) {
+    return leadTypeStyle(type);
   }
 
   function statusLabel(s: string) {
-    if (s === "in_bearbeitung") return "In Bearbeitung";
-    if (s === "erledigt") return "Erledigt";
-    return "Neu";
+    return statusStyleDark(s).label;
   }
 
   function statusStyle(s: string) {
-    if (s === "in_bearbeitung") return { bg: "#fff4e6", color: "#b36000" };
-    if (s === "erledigt") return { bg: "#edf5e4", color: "#3a6b10" };
-    return { bg: "#e2ede8", color: "#1a5c3a" };
+    return statusStyleDark(s);
   }
 
   const revealStyle = (delay: number) => ({
@@ -93,66 +86,64 @@ export default function LeadsPage() {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", minHeight: "100vh", background: "#fafaf8", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ color: "#bbb", fontSize: "14px" }}>Wird geladen...</p>
+      <div style={{ display: "flex", minHeight: "100vh", background: t.bg, alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: t.textMuted, fontSize: "14px" }}>Wird geladen...</p>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#fafaf8" }}>
-      <Sidebar role={role} tenantName={tenant?.name} />
+    <DashboardShell sidebar={<Sidebar role={role} tenantName={tenant?.name} />}>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-
-        <div style={{
-          background: "#fff",
-          borderBottom: "1px solid #e8e6e0",
-          padding: "22px 28px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          ...revealStyle(0),
-        }}>
-          <div>
-            <p style={{
-              fontFamily: "var(--font-playfair), Georgia, serif",
-              fontSize: "22px",
-              fontWeight: 400,
-              color: "#0a0a0a",
-              letterSpacing: "-0.3px",
-            }}>
-              Leads für{" "}
-              <span style={{ fontWeight: 600, fontStyle: "italic", color: "#2d5a1b" }}>
-                {tenant?.name ?? ""}
-              </span>
-            </p>
-            <p style={{ fontSize: "12px", color: "#bbb", marginTop: "4px" }}>
-              {leads.length} Leads gesamt
-            </p>
-          </div>
+      <div style={{
+        ...topbar,
+        padding: "22px 28px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        ...revealStyle(0),
+      }}>
+        <div>
+          <p style={{
+            fontFamily: "var(--font-instrument-serif), Georgia, serif",
+            fontSize: "24px",
+            fontWeight: 400,
+            color: t.text,
+            letterSpacing: "-0.3px",
+          }}>
+            Leads für{" "}
+            <span style={{ fontStyle: "italic", color: t.greenAccent }}>
+              {tenant?.name ?? ""}
+            </span>
+          </p>
+          <p style={{ fontSize: "12px", color: t.textMuted, marginTop: "4px" }}>
+            {leads.length} Leads gesamt
+          </p>
         </div>
+      </div>
 
-        <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "16px" }}>
+      <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "16px" }}>
 
-          <div style={{ display: "flex", gap: "6px", ...revealStyle(0.05) }}>
-            {[
-              { key: "alle", label: "Alle" },
-              { key: "neu", label: "Neu" },
-              { key: "in_bearbeitung", label: "In Bearbeitung" },
-              { key: "erledigt", label: "Erledigt" },
-            ].map((tab) => (
+        <div style={{ display: "flex", gap: "6px", ...revealStyle(0.05) }}>
+          {[
+            { key: "alle", label: "Alle" },
+            { key: "neu", label: "Neu" },
+            { key: "in_bearbeitung", label: "In Bearbeitung" },
+            { key: "erledigt", label: "Erledigt" },
+          ].map((tab) => {
+            const active = filter === tab.key;
+            return (
               <button
                 key={tab.key}
                 onClick={() => setFilter(tab.key)}
                 style={{
-                  padding: "6px 14px",
+                  padding: "7px 15px",
                   borderRadius: "20px",
                   fontSize: "12px",
-                  fontWeight: filter === tab.key ? 500 : 400,
-                  border: filter === tab.key ? "1px solid #c4d9cc" : "1px solid #e8e6e0",
-                  background: filter === tab.key ? "#e2ede8" : "#fff",
-                  color: filter === tab.key ? "#1a5c3a" : "#aaa",
+                  fontWeight: active ? 500 : 400,
+                  border: active ? `1px solid ${t.greenBorder}` : `1px solid ${t.border}`,
+                  background: active ? t.greenSoft : "rgba(255,255,255,0.55)",
+                  color: active ? t.greenAccent : t.textMuted,
                   cursor: "pointer",
                   transition: "all 0.15s",
                 }}
@@ -160,95 +151,95 @@ export default function LeadsPage() {
                 {tab.label}
                 <span style={{
                   marginLeft: "6px", fontSize: "10px",
-                  background: filter === tab.key ? "#e2ede8" : "#f5f5f5",
-                  color: filter === tab.key ? "#1a5c3a" : "#bbb",
+                  background: active ? "rgba(26,92,58,0.16)" : "rgba(18,30,22,0.06)",
+                  color: active ? t.greenAccent : t.textMuted,
                   padding: "1px 6px", borderRadius: "10px",
                 }}>
                   {counts[tab.key as keyof typeof counts]}
                 </span>
               </button>
-            ))}
-          </div>
+            );
+          })}
+        </div>
 
-          <div style={revealStyle(0.1)}>
-            {filteredLeads.length === 0 ? (
-              <div style={{
-                background: "#fff", border: "1px solid #e8e6e0",
-                borderRadius: "10px", padding: "40px", textAlign: "center",
-              }}>
-                <p style={{ fontSize: "13px", color: "#bbb" }}>Keine Leads in dieser Kategorie.</p>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
-                {filteredLeads.map((lead) => {
-                  const tagStyle = leadTypColor(lead.type);
-                  const statStyle = statusStyle(lead.status);
-                  return (
-                    <div
-                      key={lead.id}
-                      onClick={() => router.push(`/dashboard/leads/${lead.id}`)}
-                      style={{
-                        background: "#fff", border: "1px solid #e8e6e0",
-                        borderRadius: "9px", padding: "13px 16px",
-                        display: "flex", alignItems: "center", gap: "12px",
-                        cursor: "pointer", transition: "all 0.15s",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = "#c4d9cc";
-                        e.currentTarget.style.background = "#fdfcff";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = "#e8e6e0";
-                        e.currentTarget.style.background = "#fff";
-                      }}
-                    >
-                      <div style={{
-                        width: "3px", height: "40px", borderRadius: "2px",
-                        background: tagStyle.bar, flexShrink: 0,
-                      }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "7px", marginBottom: "3px" }}>
-                          <span style={{ fontSize: "13px", fontWeight: 600, color: "#0a0a0a" }}>
-                            {lead.name ?? "Kein Name"}
-                          </span>
-                          <span style={{
-                            fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
-                            fontWeight: 500, background: tagStyle.bg, color: tagStyle.color,
-                          }}>
-                            {leadTypLabel(lead.type)}
-                          </span>
-                          <span style={{
-                            fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
-                            fontWeight: 500, background: statStyle.bg, color: statStyle.color,
-                          }}>
-                            {statusLabel(lead.status)}
-                          </span>
-                        </div>
-                        <p style={{
-                          fontSize: "12px", color: "#aaa",
-                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                          maxWidth: "400px",
+        <div style={revealStyle(0.1)}>
+          {filteredLeads.length === 0 ? (
+            <div style={{
+              ...glass,
+              borderRadius: "14px", padding: "40px", textAlign: "center",
+            }}>
+              <p style={{ fontSize: "13px", color: t.textMuted }}>Keine Leads in dieser Kategorie.</p>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {filteredLeads.map((lead) => {
+                const tagStyle = leadTypColor(lead.type);
+                const statStyle = statusStyle(lead.status);
+                return (
+                  <div
+                    key={lead.id}
+                    onClick={() => router.push(`/dashboard/leads/${lead.id}`)}
+                    style={{
+                      ...glass,
+                      borderRadius: "13px", padding: "13px 16px",
+                      display: "flex", alignItems: "center", gap: "12px",
+                      cursor: "pointer", transition: "background 0.15s, border-color 0.15s",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = t.greenBorder;
+                      e.currentTarget.style.background = "rgba(255,255,255,0.8)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "rgba(255,255,255,0.7)";
+                      e.currentTarget.style.background = "rgba(255,255,255,0.55)";
+                    }}
+                  >
+                    <div style={{
+                      width: "3px", height: "40px", borderRadius: "2px",
+                      background: tagStyle.bar, flexShrink: 0,
+                    }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "7px", marginBottom: "3px" }}>
+                        <span style={{ fontSize: "13px", fontWeight: 600, color: t.text }}>
+                          {lead.name ?? "Kein Name"}
+                        </span>
+                        <span style={{
+                          fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
+                          fontWeight: 500, background: tagStyle.bg, color: tagStyle.color,
                         }}>
-                          {lead.message}
-                        </p>
-                        <div style={{ display: "flex", gap: "10px", marginTop: "3px" }}>
-                          {lead.email && <span style={{ fontSize: "11px", color: "#bbb" }}>✉ {lead.email}</span>}
-                          {lead.phone && <span style={{ fontSize: "11px", color: "#bbb" }}>✆ {lead.phone}</span>}
-                        </div>
+                          {leadTypLabel(lead.type)}
+                        </span>
+                        <span style={{
+                          fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
+                          fontWeight: 500, background: statStyle.bg, color: statStyle.color,
+                        }}>
+                          {statusLabel(lead.status)}
+                        </span>
                       </div>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px", flexShrink: 0 }}>
-                        <span style={{ fontSize: "11px", color: "#ccc" }}>{formatDate(lead.created_at)}</span>
-                        <span style={{ fontSize: "11px", color: "#bbb" }}>→</span>
+                      <p style={{
+                        fontSize: "12px", color: t.textMuted,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        maxWidth: "400px",
+                      }}>
+                        {lead.message}
+                      </p>
+                      <div style={{ display: "flex", gap: "10px", marginTop: "3px" }}>
+                        {lead.email && <span style={{ fontSize: "11px", color: t.textFaint }}>✉ {lead.email}</span>}
+                        {lead.phone && <span style={{ fontSize: "11px", color: t.textFaint }}>✆ {lead.phone}</span>}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px", flexShrink: 0 }}>
+                      <span style={{ fontSize: "11px", color: t.textFaint }}>{formatDate(lead.created_at)}</span>
+                      <span style={{ fontSize: "11px", color: t.textMuted }}>→</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
+
       </div>
-    </div>
+    </DashboardShell>
   );
 }

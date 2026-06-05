@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { authedFetch } from "@/lib/api-client";
+import { t as theme, topbar as topbarStyle, DashboardShell } from "@/lib/dashboardTheme";
 import {
   ResponsiveContainer,
   LineChart,
@@ -73,16 +74,22 @@ function fmtShortDate(iso: string) {
 }
 
 const colors = {
-  bg: "#fafaf8",
-  surface: "#fff",
-  border: "#e8e6e0",
-  text: "#0f0f0e",
-  muted: "#888780",
-  subtle: "#4a4a47",
-  green: "#1a5c3a",
-  greenSoft: "#e2ede8",
-  amber: "#85500b",
-  amberSoft: "#faeeda",
+  bg: theme.bg,
+  surface: "rgba(255,255,255,0.55)",
+  surfaceSolid: "rgba(255,255,255,0.96)", // für Tooltips (undurchsichtig)
+  track: "rgba(18,30,22,0.08)",
+  barSecondary: "rgba(18,30,22,0.16)",
+  border: theme.border,
+  borderStrong: theme.borderStrong,
+  text: theme.text,
+  muted: theme.textMuted,
+  subtle: theme.textSecondary,
+  green: theme.greenAccent,
+  greenSoft: theme.greenSoft,
+  greenBorder: theme.greenBorder,
+  amber: theme.amber,
+  amberSoft: theme.amberSoft,
+  amberBorder: theme.amberBorder,
 };
 
 const IconMessage = () => (
@@ -148,7 +155,7 @@ function KpiCard({
             width: 28,
             height: 28,
             borderRadius: 7,
-            background: accent ? colors.greenSoft : "#f1efea",
+            background: accent ? colors.greenSoft : "rgba(18,30,22,0.05)",
             color: accent ? colors.green : colors.subtle,
             display: "flex",
             alignItems: "center",
@@ -254,15 +261,11 @@ export default function WirkungPage() {
   const workDays = data ? data.estimatedTimeSavedHours / 8 : 0;
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: colors.bg }}>
-      <Sidebar role={role} tenantName={tenant?.name} />
-
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+    <DashboardShell sidebar={<Sidebar role={role} tenantName={tenant?.name} />}>
         {/* Header */}
         <div
           style={{
-            background: colors.surface,
-            borderBottom: `1px solid ${colors.border}`,
+            ...topbarStyle,
             padding: "20px 28px",
             display: "flex",
             alignItems: "center",
@@ -455,7 +458,7 @@ export default function WirkungPage() {
                       />
                       <Tooltip
                         contentStyle={{
-                          background: colors.surface,
+                          background: colors.surfaceSolid,
                           border: `1px solid ${colors.border}`,
                           borderRadius: 6,
                           fontSize: 12,
@@ -524,12 +527,13 @@ export default function WirkungPage() {
                             tickLine={false}
                           />
                           <Tooltip
-                            cursor={{ fill: "#f1efea" }}
+                            cursor={{ fill: "rgba(18,30,22,0.05)" }}
                             contentStyle={{
-                              background: colors.surface,
+                              background: colors.surfaceSolid,
                               border: `1px solid ${colors.border}`,
                               borderRadius: 6,
                               fontSize: 12,
+                              color: colors.text,
                             }}
                             formatter={(v) => [Number(v), "Mal gestellt"]}
                             labelFormatter={(_, payload) =>
@@ -538,7 +542,7 @@ export default function WirkungPage() {
                           />
                           <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                             {data.topQuestions.map((_, i) => (
-                              <Cell key={i} fill={i === 0 ? colors.green : "#c5d6cd"} />
+                              <Cell key={i} fill={i === 0 ? colors.green : colors.barSecondary} />
                             ))}
                           </Bar>
                         </BarChart>
@@ -632,8 +636,8 @@ export default function WirkungPage() {
                           alignItems: "center",
                           gap: 12,
                           padding: "10px 14px",
-                          background: "#faf3e6",
-                          border: "1px solid #ecdcc0",
+                          background: colors.amberSoft,
+                          border: `1px solid ${colors.amberBorder}`,
                           borderRadius: 8,
                         }}
                       >
@@ -654,8 +658,8 @@ export default function WirkungPage() {
                 <div
                   style={{
                     background: colors.greenSoft,
-                    border: `1px solid #c5d6cd`,
-                    borderRadius: 10,
+                    border: `1px solid ${colors.greenBorder}`,
+                    borderRadius: 12,
                     padding: "22px 26px",
                     display: "flex",
                     gap: 16,
@@ -667,7 +671,7 @@ export default function WirkungPage() {
                       width: 36,
                       height: 36,
                       borderRadius: 9,
-                      background: "#fff",
+                      background: "#ffffff",
                       color: colors.green,
                       display: "flex",
                       alignItems: "center",
@@ -711,8 +715,7 @@ export default function WirkungPage() {
             </>
           ) : null}
         </div>
-      </div>
-    </div>
+    </DashboardShell>
   );
 }
 
@@ -736,7 +739,7 @@ function QualityRow({
         <p style={{ fontSize: 13, color: colors.subtle }}>{label}</p>
         <p style={{ fontSize: 15, color: colors.text, fontWeight: 500 }}>{value}</p>
       </div>
-      <div style={{ height: 6, background: "#f1efea", borderRadius: 999, overflow: "hidden" }}>
+      <div style={{ height: 6, background: colors.track, borderRadius: 999, overflow: "hidden" }}>
         <div style={{ width: `${pct}%`, height: "100%", background: color, transition: "width 0.4s ease" }} />
       </div>
       {hint && <p style={{ fontSize: 11.5, color: colors.muted, marginTop: 6, lineHeight: 1.4 }}>{hint}</p>}

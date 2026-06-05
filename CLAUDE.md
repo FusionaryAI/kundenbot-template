@@ -2,6 +2,10 @@
 
 ## Design Context
 
+> **Geltungsbereich:** Dieser gesamte Design-Context beschreibt ausschließlich die **eigene Marke und Marketing-Website von Fusionary AI**. Fusionary AI baut Websites für Kunden in den unterschiedlichsten Stilrichtungen — bei **Kundenprojekten gilt ausschließlich der jeweilige Kunden-Brief**, nicht dieses Markendesign. Die eigene Firmen-Ästhetik darf sich niemals in Kundenarbeit einmischen.
+
+> **Ausnahme — Produkt-Dashboard:** Die Design-Principles dieses Guides (u.a. „kein Glassmorphism") gelten für die **Marketing-Website**. Das eingeloggte **Produkt-Dashboard** (`/dashboard`, geteilte `components/Sidebar.tsx`) nutzt bewusst ein **eigenes helles Glassmorphism-Theme** mit feinem Gitternetz-Hintergrund, Glas-Panels und Fusionary-Grün als gezieltem Akzent/Glow (Toggle, Badge, Progress, CTA). Tokens, Glas-Stile und Hintergrund liegen zentral in [`lib/dashboardTheme.tsx`](lib/dashboardTheme.tsx). Das ist gewollt und kein Verstoß gegen den „kein Glassmorphism"-Punkt — der bezieht sich auf die Website. (Der `/admin`-Bereich ist noch im alten Light-Look; `IntegrationsEditor` ist themefähig und in beiden Welten nutzbar.)
+
 ### Users
 **Primäre Zielgruppe der Marketing-Seite**: KMU-Inhaber, Praxisinhaber, Handwerker, Agenturen und mittelständische Dienstleister im DACH-Raum. Sie evaluieren Fusionary AI als KI-Chatbot-Lösung für ihr eigenes Unternehmen — kein Tech-Background vorausgesetzt, aber Ernsthaftigkeit und Qualität werden erwartet.
 
@@ -29,7 +33,7 @@ Fusionary AI ist keine generische SaaS-Plattform von der Stange. Es ist ein eige
 
 **Thema**: Light Mode. Helle, professionelle Oberfläche für Entscheider in gut beleuchteten Büroumgebungen.
 
-**Farbpalette**: Lila `#5b53d8` + Dunkelgrün `#2d5a1b` als Ausgangspunkt — in OKLCH überarbeitet für perceptuelle Gleichmäßigkeit. Neutraltöne mit zartem Lila-Unterton. Grün als rarer, gezielter Akzent — nicht flächig eingesetzt.
+**Farbpalette**: Dunkelgrün `#2d5a1b` als Ausgangspunkt — in OKLCH überarbeitet für perceptuelle Gleichmäßigkeit. Neutraltöne als Basis (kein Lila-Unterton). Grün als rarer, gezielter Akzent — nicht flächig eingesetzt. **Lila kommt nicht zur Anwendung.**
 
 **Typografie**: Starke, unverwechselbare Display-Schrift für Headlines (kein Playfair Display — zu vorhersehbar). Klare, gut lesbare Schrift für Body. Typografische Hierarchie ist das Rückgrat des Layouts.
 
@@ -46,7 +50,7 @@ Fusionary AI ist keine generische SaaS-Plattform von der Stange. Es ist ein eige
 
 1. **Typografie trägt das Gewicht** — Headlines, Hierarchie und Laufweite sind die erste Designentscheidung, nicht die Farbe. Die Type soll so stark sein, dass das Layout ohne Farbe funktioniert.
 
-2. **Seltenheit macht Akzente stark** — Lila und Grün sind Akzente, keine Tapeten. 90% der Fläche gehört neutralen Tönen mit zartem Lila-Unterton. Farbe erscheint dort wo sie Bedeutung hat.
+2. **Seltenheit macht Akzente stark** — Grün ist ein Akzent, keine Tapete. 90% der Fläche gehört neutralen Tönen. Farbe erscheint dort wo sie Bedeutung hat.
 
 3. **Layouts haben Haltung** — Nicht alles zentriert, nicht alles in Cards. Asymmetrische Kompositionen, gezielter Weißraum, bewusste Rhythmuswechsel zwischen dichten und offenen Bereichen.
 

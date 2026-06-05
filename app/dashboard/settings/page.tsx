@@ -7,6 +7,7 @@ import Sidebar from "@/components/Sidebar";
 import IntegrationsEditor from "@/components/IntegrationsEditor";
 import { useAuth } from "@/hooks/useAuth";
 import { resolveVertical } from "@/lib/verticals/registry";
+import { t, glass, ctaPrimary, inputDark, editorTheme, topbar, DashboardShell } from "@/lib/dashboardTheme";
 
 const DAYS: Array<{ key: string; label: string }> = [
   { key: "mo", label: "Montag" },
@@ -118,216 +119,201 @@ export default function SettingsPage() {
     transition: `opacity 0.5s ease ${delay}s, transform 0.5s ease ${delay}s`,
   });
 
-  const inputStyle = {
-    width: "100%",
-    background: "#fafaf8",
-    color: "#111",
-    borderRadius: "8px",
-    padding: "9px 12px",
-    fontSize: "13px",
-    border: "1px solid #e8e6e0",
-    outline: "none",
-    boxSizing: "border-box" as const,
-    transition: "border-color 0.15s",
-    fontFamily: "inherit",
-  };
+  const inputStyle = inputDark;
 
   const sectionStyle = {
-    background: "#fff",
-    border: "1px solid #e8e6e0",
-    borderRadius: "10px",
+    ...glass,
+    borderRadius: "14px",
     padding: "20px 24px",
   };
 
   if (loading) {
     return (
-      <div style={{ display: "flex", minHeight: "100vh", background: "#fafaf8", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ color: "#bbb", fontSize: "14px" }}>Wird geladen...</p>
+      <div style={{ display: "flex", minHeight: "100vh", background: t.bg, alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: t.textMuted, fontSize: "14px" }}>Wird geladen...</p>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#fafaf8" }}>
-      <Sidebar role={role} tenantName={tenant?.name} />
+    <DashboardShell sidebar={<Sidebar role={role} tenantName={tenant?.name} />}>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-
-        <div style={{
-          background: "#fff",
-          borderBottom: "1px solid #e8e6e0",
-          padding: "22px 28px",
-          ...revealStyle(0),
+      <div style={{
+        ...topbar,
+        padding: "22px 28px",
+        ...revealStyle(0),
+      }}>
+        <p style={{
+          fontFamily: "var(--font-instrument-serif), Georgia, serif",
+          fontSize: "24px",
+          fontWeight: 400,
+          color: t.text,
+          letterSpacing: "-0.3px",
         }}>
-          <p style={{
-            fontFamily: "var(--font-playfair), Georgia, serif",
-            fontSize: "22px",
-            fontWeight: 400,
-            color: "#0a0a0a",
-            letterSpacing: "-0.3px",
-          }}>
-            Integrationen für{" "}
-            <span style={{ fontWeight: 600, fontStyle: "italic", color: "#2d5a1b" }}>
-              {tenant?.name ?? ""}
-            </span>
-          </p>
-          <p style={{ fontSize: "12px", color: "#bbb", marginTop: "4px" }}>
-            Verbinde deinen Bot mit externen Tools – Leads werden automatisch weitergeleitet.
-          </p>
-        </div>
-
-        <div style={{ padding: "24px 28px", maxWidth: "640px", display: "flex", flexDirection: "column", gap: "16px" }}>
-
-          {/* Integrationen (registry-getrieben, geteilt mit dem Admin) */}
-          <div style={revealStyle(0.05)}>
-            <IntegrationsEditor
-              tenantId={tenant!.id}
-              verticalId={verticalId}
-              theme={{ inputBg: "#fafaf8", border: "#e8e6e0", focus: "#c4d9cc" }}
-            />
-          </div>
-
-          {/* Section heading: Wirkung */}
-          <div style={{ marginTop: "32px", marginBottom: "4px", ...revealStyle(0.22) }}>
-            <p style={{
-              fontFamily: "var(--font-instrument-serif), var(--font-playfair), Georgia, serif",
-              fontSize: "22px",
-              color: "#0f0f0e",
-              letterSpacing: "-0.01em",
-              lineHeight: 1.15,
-            }}>
-              Wirkung berechnen
-            </p>
-            <p style={{ fontSize: "12.5px", color: "#888780", marginTop: "4px" }}>
-              Diese Werte fließen in das Wirkung-Dashboard ein – Zeit- und Kostenersparnis basieren darauf.
-            </p>
-          </div>
-
-          {/* Berechnung */}
-          <div style={{ ...sectionStyle, ...revealStyle(0.25) }}>
-            <div style={{ marginBottom: "16px" }}>
-              <p style={{ fontSize: "13px", fontWeight: 600, color: "#0f0f0e" }}>Berechnung der Wirkung</p>
-              <p style={{ fontSize: "11.5px", color: "#888780", marginTop: "2px" }}>
-                Wie viel ist eine Mitarbeiterstunde wert – und wie lange dauert eine typische Anfrage?
-              </p>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-              <div>
-                <label style={{ fontSize: "11px", color: "#888780", display: "block", marginBottom: "5px", fontWeight: 500 }}>
-                  Stundensatz Ihrer Mitarbeiter (€)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={1000}
-                  step={1}
-                  value={hourlyRate}
-                  onChange={(e) => setHourlyRate(e.target.value)}
-                  style={inputStyle}
-                />
-                <p style={{ fontSize: "10.5px", color: "#888780", marginTop: "5px" }}>
-                  Wird verwendet, um die Kostenersparnis zu berechnen.
-                </p>
-              </div>
-              <div>
-                <label style={{ fontSize: "11px", color: "#888780", display: "block", marginBottom: "5px", fontWeight: 500 }}>
-                  Bearbeitungszeit pro Anfrage (Minuten)
-                </label>
-                <input
-                  type="number"
-                  min={0.5}
-                  max={120}
-                  step={0.5}
-                  value={handlingMinutes}
-                  onChange={(e) => setHandlingMinutes(e.target.value)}
-                  style={inputStyle}
-                />
-                <p style={{ fontSize: "10.5px", color: "#888780", marginTop: "5px" }}>
-                  Wie lange würde ein Mitarbeiter durchschnittlich für eine Anfrage am Telefon brauchen?
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Öffnungszeiten */}
-          <div style={{ ...sectionStyle, ...revealStyle(0.3) }}>
-            <div style={{ marginBottom: "16px" }}>
-              <p style={{ fontSize: "13px", fontWeight: 600, color: "#0f0f0e" }}>Öffnungszeiten</p>
-              <p style={{ fontSize: "11.5px", color: "#888780", marginTop: "2px" }}>
-                Anfragen außerhalb dieser Zeiten zählen als „nach Feierabend abgefangen&ldquo;.
-              </p>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {DAYS.map((d) => {
-                const hours = openingHours[d.key];
-                const isOpen = !!hours;
-                return (
-                  <div
-                    key={d.key}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "100px 90px 1fr 1fr",
-                      gap: "10px",
-                      alignItems: "center",
-                    }}
-                  >
-                    <p style={{ fontSize: "13px", color: "#0f0f0e", fontWeight: 500 }}>{d.label}</p>
-                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "12px", color: "#4a4a47" }}>
-                      <input
-                        type="checkbox"
-                        checked={isOpen}
-                        onChange={(e) => setDayOpen(d.key, e.target.checked)}
-                        style={{ accentColor: "#1a5c3a" }}
-                      />
-                      {isOpen ? "Geöffnet" : "Geschlossen"}
-                    </label>
-                    <input
-                      type="time"
-                      value={hours?.open ?? "08:00"}
-                      disabled={!isOpen}
-                      onChange={(e) => setDayTime(d.key, "open", e.target.value)}
-                      style={{ ...inputStyle, opacity: isOpen ? 1 : 0.4 }}
-                    />
-                    <input
-                      type="time"
-                      value={hours?.close ?? "18:00"}
-                      disabled={!isOpen}
-                      onChange={(e) => setDayTime(d.key, "close", e.target.value)}
-                      style={{ ...inputStyle, opacity: isOpen ? 1 : 0.4 }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Speichern (Wirkung) */}
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", ...revealStyle(0.35) }}>
-            <button
-              onClick={handleSaveWirkung}
-              disabled={wirkungSaving}
-              style={{
-                background: "#1a5c3a", color: "#fff", border: "none",
-                borderRadius: "8px", padding: "10px 20px", fontSize: "13px",
-                fontWeight: 500, cursor: "pointer",
-                opacity: wirkungSaving ? 0.6 : 1, transition: "all 0.15s",
-              }}
-              onMouseEnter={(e) => { if (!wirkungSaving) e.currentTarget.style.background = "#144a2e"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "#1a5c3a"; }}
-            >
-              {wirkungSaving ? "Wird gespeichert..." : "Wirkungs-Einstellungen speichern"}
-            </button>
-            {wirkungMsg && (
-              <span style={{ fontSize: "12px", color: wirkungMsg.includes("Fehler") ? "#e05" : "#1a5c3a" }}>
-                {wirkungMsg}
-              </span>
-            )}
-          </div>
-
-        </div>
+          Integrationen für{" "}
+          <span style={{ fontStyle: "italic", color: t.greenAccent }}>
+            {tenant?.name ?? ""}
+          </span>
+        </p>
+        <p style={{ fontSize: "12px", color: t.textMuted, marginTop: "4px" }}>
+          Verbinde deinen Bot mit externen Tools – Leads werden automatisch weitergeleitet.
+        </p>
       </div>
-    </div>
+
+      <div style={{ padding: "24px 28px", maxWidth: "640px", display: "flex", flexDirection: "column", gap: "16px" }}>
+
+        {/* Integrationen (registry-getrieben, geteilt mit dem Admin) */}
+        <div style={revealStyle(0.05)}>
+          <IntegrationsEditor
+            tenantId={tenant!.id}
+            verticalId={verticalId}
+            theme={editorTheme}
+          />
+        </div>
+
+        {/* Section heading: Wirkung */}
+        <div style={{ marginTop: "32px", marginBottom: "4px", ...revealStyle(0.22) }}>
+          <p style={{
+            fontFamily: "var(--font-instrument-serif), Georgia, serif",
+            fontSize: "22px",
+            color: t.text,
+            letterSpacing: "-0.01em",
+            lineHeight: 1.15,
+          }}>
+            Wirkung berechnen
+          </p>
+          <p style={{ fontSize: "12.5px", color: t.textMuted, marginTop: "4px" }}>
+            Diese Werte fließen in das Wirkung-Dashboard ein – Zeit- und Kostenersparnis basieren darauf.
+          </p>
+        </div>
+
+        {/* Berechnung */}
+        <div style={{ ...sectionStyle, ...revealStyle(0.25) }}>
+          <div style={{ marginBottom: "16px" }}>
+            <p style={{ fontSize: "13px", fontWeight: 600, color: t.text }}>Berechnung der Wirkung</p>
+            <p style={{ fontSize: "11.5px", color: t.textMuted, marginTop: "2px" }}>
+              Wie viel ist eine Mitarbeiterstunde wert – und wie lange dauert eine typische Anfrage?
+            </p>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+            <div>
+              <label style={{ fontSize: "11px", color: t.textSecondary, display: "block", marginBottom: "5px", fontWeight: 500 }}>
+                Stundensatz Ihrer Mitarbeiter (€)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={1000}
+                step={1}
+                value={hourlyRate}
+                onChange={(e) => setHourlyRate(e.target.value)}
+                style={inputStyle}
+                onFocus={(e) => e.currentTarget.style.borderColor = t.greenBorder}
+                onBlur={(e) => e.currentTarget.style.borderColor = t.border}
+              />
+              <p style={{ fontSize: "10.5px", color: t.textMuted, marginTop: "5px" }}>
+                Wird verwendet, um die Kostenersparnis zu berechnen.
+              </p>
+            </div>
+            <div>
+              <label style={{ fontSize: "11px", color: t.textSecondary, display: "block", marginBottom: "5px", fontWeight: 500 }}>
+                Bearbeitungszeit pro Anfrage (Minuten)
+              </label>
+              <input
+                type="number"
+                min={0.5}
+                max={120}
+                step={0.5}
+                value={handlingMinutes}
+                onChange={(e) => setHandlingMinutes(e.target.value)}
+                style={inputStyle}
+                onFocus={(e) => e.currentTarget.style.borderColor = t.greenBorder}
+                onBlur={(e) => e.currentTarget.style.borderColor = t.border}
+              />
+              <p style={{ fontSize: "10.5px", color: t.textMuted, marginTop: "5px" }}>
+                Wie lange würde ein Mitarbeiter durchschnittlich für eine Anfrage am Telefon brauchen?
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Öffnungszeiten */}
+        <div style={{ ...sectionStyle, ...revealStyle(0.3) }}>
+          <div style={{ marginBottom: "16px" }}>
+            <p style={{ fontSize: "13px", fontWeight: 600, color: t.text }}>Öffnungszeiten</p>
+            <p style={{ fontSize: "11.5px", color: t.textMuted, marginTop: "2px" }}>
+              Anfragen außerhalb dieser Zeiten zählen als „nach Feierabend abgefangen&ldquo;.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {DAYS.map((d) => {
+              const hours = openingHours[d.key];
+              const isOpen = !!hours;
+              return (
+                <div
+                  key={d.key}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "100px 90px 1fr 1fr",
+                    gap: "10px",
+                    alignItems: "center",
+                  }}
+                >
+                  <p style={{ fontSize: "13px", color: t.text, fontWeight: 500 }}>{d.label}</p>
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "12px", color: t.textSecondary }}>
+                    <input
+                      type="checkbox"
+                      checked={isOpen}
+                      onChange={(e) => setDayOpen(d.key, e.target.checked)}
+                      style={{ accentColor: t.greenAccent }}
+                    />
+                    {isOpen ? "Geöffnet" : "Geschlossen"}
+                  </label>
+                  <input
+                    type="time"
+                    value={hours?.open ?? "08:00"}
+                    disabled={!isOpen}
+                    onChange={(e) => setDayTime(d.key, "open", e.target.value)}
+                    style={{ ...inputStyle, colorScheme: "dark", opacity: isOpen ? 1 : 0.4 }}
+                  />
+                  <input
+                    type="time"
+                    value={hours?.close ?? "18:00"}
+                    disabled={!isOpen}
+                    onChange={(e) => setDayTime(d.key, "close", e.target.value)}
+                    style={{ ...inputStyle, colorScheme: "dark", opacity: isOpen ? 1 : 0.4 }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Speichern (Wirkung) */}
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", ...revealStyle(0.35) }}>
+          <button
+            onClick={handleSaveWirkung}
+            disabled={wirkungSaving}
+            style={{
+              ...ctaPrimary,
+              borderRadius: "9px", padding: "10px 20px", fontSize: "13px",
+              opacity: wirkungSaving ? 0.6 : 1,
+            }}
+            onMouseEnter={(e) => { if (!wirkungSaving) e.currentTarget.style.filter = "brightness(1.08)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.filter = "brightness(1)"; }}
+          >
+            {wirkungSaving ? "Wird gespeichert..." : "Wirkungs-Einstellungen speichern"}
+          </button>
+          {wirkungMsg && (
+            <span style={{ fontSize: "12px", color: wirkungMsg.includes("Fehler") ? t.danger : t.greenAccent }}>
+              {wirkungMsg}
+            </span>
+          )}
+        </div>
+
+      </div>
+    </DashboardShell>
   );
 }
