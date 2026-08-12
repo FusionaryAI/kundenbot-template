@@ -1,7 +1,7 @@
 // deploy-test
 "use client";
 
-import { useCallback, useEffect, useRef, useState, memo } from "react";
+import { use, useCallback, useEffect, useRef, useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
 
 type Message = {
@@ -11,17 +11,13 @@ type Message = {
   timestamp?: string;
 };
 
+// Next.js 16: dynamic route params are async and must be unwrapped
+// (React.use() in Client Components, await in Server Components).
 type EmbedProps = {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 };
 
 const Markdown = ReactMarkdown as any;
-
-function slugFromPathname(): string | null {
-  if (typeof window === "undefined") return null;
-  const m = window.location.pathname.match(/\/embed\/([^/?#]+)/);
-  return m?.[1] ? decodeURIComponent(m[1]) : null;
-}
 
 function nowTime(): string {
   return new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
@@ -106,12 +102,25 @@ const PROACTIVE_DELAY_MS = 45_000;
 const PROACTIVE_TEXT =
   "Gibt es noch etwas, womit ich helfen kann? Falls Sie möchten, kann ich Ihre Anfrage auch direkt **ans Team weiterleiten**.";
 
+/**
+ * KI-VO (EU AI Act) Art. 50 Abs. 1 — gilt seit 02.08.2026:
+ * Nutzer müssen spätestens bei der ersten Interaktion klar erkennen, dass sie
+ * mit einer KI sprechen. Der Chat-Header trägt den Hinweis dauerhaft; weil die
+ * Begrüßung aber kundenseitig überschreibbar ist (welcome_message) und die erste
+ * inhaltliche Botschaft darstellt, stellen wir den Hinweis hier zusätzlich sicher.
+ * Nennt der Kunde den KI-Charakter bereits selbst, bleibt sein Text unverändert.
+ */
+const AI_NOTICE = "Hier antwortet ein KI-Assistent.";
+const MENTIONS_AI = /\bKI\b|\bAI\b|künstliche[rn]?\s+Intelligenz|chatbot|\bbot\b/i;
+
+function withAiNotice(text?: string | null): string {
+  const t = (text ?? "").trim();
+  if (!t) return `${AI_NOTICE} Wie kann ich Ihnen helfen?`;
+  return MENTIONS_AI.test(t) ? t : `${AI_NOTICE} ${t}`;
+}
+
 export default function Embed({ params }: EmbedProps) {
-  const [slugSafe, setSlugSafe] = useState<string>(() => params?.slug || "");
-  useEffect(() => {
-    const s = params?.slug || slugFromPathname() || "";
-    setSlugSafe(s);
-  }, [params?.slug]);
+  const { slug: slugSafe } = use(params);
 
   const [isOpen, setIsOpen] = useState(true);
   const [input, setInput] = useState("");
@@ -164,18 +173,17 @@ export default function Embed({ params }: EmbedProps) {
   // Welcome message
   useEffect(() => {
     async function loadWelcome() {
-      const slug = params?.slug || slugFromPathname() || "";
-      if (!slug || welcomeLoaded) return;
+      if (!slugSafe || welcomeLoaded) return;
 
       try {
         const origin = typeof window !== "undefined" ? window.location.origin : "";
-        const res = await fetch(`${origin}/api/widget/${encodeURIComponent(slug)}`);
+        const res = await fetch(`${origin}/api/widget/${encodeURIComponent(slugSafe)}`);
         const data = await res.json().catch(() => ({}));
 
         if (data?.tenant_name) setTenantName(data.tenant_name);
         setMessages([{
           role: "assistant",
-          text: data?.welcome_message?.trim() || "Hallo! Wie kann ich Ihnen helfen?",
+          text: withAiNotice(data?.welcome_message),
           isTyping: true,
           timestamp: nowTime(),
         }]);
@@ -183,7 +191,7 @@ export default function Embed({ params }: EmbedProps) {
       } catch {
         setMessages([{
           role: "assistant",
-          text: "Hallo! Wie kann ich Ihnen helfen?",
+          text: withAiNotice(null),
           isTyping: true,
           timestamp: nowTime(),
         }]);
@@ -192,13 +200,13 @@ export default function Embed({ params }: EmbedProps) {
       setWelcomeLoaded(true);
     }
     loadWelcome();
-  }, [params?.slug, welcomeLoaded]);
+  }, [slugSafe, welcomeLoaded]);
 
   const send = useCallback(async (textOverride?: string) => {
     const q = (textOverride ?? input).trim();
     if (!q || isSending) return;
 
-    const slug = slugSafe || slugFromPathname() || "";
+    const slug = slugSafe;
     if (!slug) {
       setMessages((m) => [
         ...m,

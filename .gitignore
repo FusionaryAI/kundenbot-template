@@ -3,5 +3,14 @@ node_modules
 .env
 .env.local
 .DS_Store
-.claude
 tsconfig.tsbuildinfo
+
+# Lokale Werkzeug-Artefakte (Claude Code / Skills) — gehören nicht ins Repo
+.claude
+.agents
+.backups
+skills-lock.json
+
+# Weitere Env-Varianten absichern (Secrets gehören nie ins Repo)
+.env.*.local
+.env.production

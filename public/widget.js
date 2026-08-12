@@ -16,7 +16,10 @@
   wrap.className = "pa-bubble";
   var btn = document.createElement("button");
   btn.className = "pa-btn";
-  btn.setAttribute("aria-label","Chat");
+  // KI-VO Art. 50 Abs. 5: Der Hinweis auf den KI-Charakter muss auch
+  // barrierefrei zugänglich sein — Screenreader-Nutzer erfahren ihn hier
+  // bereits vor dem Öffnen des Chats.
+  btn.setAttribute("aria-label","Chat mit KI-Assistent öffnen");
   btn.textContent = "💬";
   wrap.appendChild(btn);
   document.body.appendChild(wrap);
