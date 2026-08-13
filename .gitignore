@@ -14,3 +14,5 @@ skills-lock.json
 # Weitere Env-Varianten absichern (Secrets gehören nie ins Repo)
 .env.*.local
 .env.production
+.vercel
+.env*
