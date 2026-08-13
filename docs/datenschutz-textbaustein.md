@@ -74,11 +74,16 @@ soweit die Anbieter zertifiziert sind, auf Grundlage des EU-US Data Privacy Fram
 
 **Speicherdauer**
 Kontaktanfragen speichern wir, bis Ihr Anliegen abschließend bearbeitet ist, längstens
-jedoch `[prüfen: z. B. 6 Monate]`; gesetzliche Aufbewahrungsfristen bleiben unberührt.
-Nutzungsstatistiken werden nach `[prüfen: z. B. 12 Monaten]` gelöscht. Der Verlauf Ihrer
-Konversation wird nicht dauerhaft gespeichert.
-`[prüfen: eine automatische Löschroutine ist derzeit nicht eingerichtet — Löschung
-organisatorisch festlegen oder technisch ergänzen]`
+jedoch **6 Monate**; gesetzliche Aufbewahrungsfristen bleiben unberührt.
+Nutzungsstatistiken und gespeicherte Fragen werden nach **12 Monaten** gelöscht. Der
+Verlauf Ihrer Konversation wird nicht dauerhaft gespeichert. Die Löschung erfolgt
+automatisiert durch eine täglich laufende Routine.
+
+> **Vor Verwendung prüfen:** Diese Angaben setzen voraus, dass die Migration
+> `supabase/migrations/20260812120000_add_data_retention.sql` in der Datenbank des
+> Projekts eingespielt ist (siehe `docs/loeschroutine.md`). Solange das nicht der Fall
+> ist, darf der Absatz **nicht** so veröffentlicht werden — eine zugesagte, aber nicht
+> stattfindende Löschung ist ein eigenständiger Verstoß.
 
 **Ihre Rechte**
 Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung,
