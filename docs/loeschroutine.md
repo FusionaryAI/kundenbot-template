@@ -40,10 +40,22 @@ select * from public.retention_log order by run_at desc limit 10;
 select public.purge_expired_data();
 ```
 
-Beim ersten Lauf werden voraussichtlich **0 Zeilen** gelöscht: Das System ist seit
-Mai 2026 produktiv, es existieren noch keine Daten jenseits der Fristen. Ein Eintrag in
-`retention_log` mit lauter Nullen ist also der erwartete Beleg dafür, dass die Routine
-arbeitet.
+**Achtung beim ersten Lauf in einem Bestandsprojekt:** Er holt die gesamte Vergangenheit
+auf und löscht alles, was die Fristen bereits überschritten hat — im Referenzprojekt
+waren das beim Erstlauf am 16.08.2026 **7 Leads**. Vor dem ersten Lauf daher immer
+zuerst zählen, wie viel betroffen wäre, und bei Bedarf exportieren:
+
+```sql
+-- Was würde gelöscht? (nur zählen, ändert nichts)
+select count(*) as leads      from public.leads                 where created_at < now() - interval '6 months'
+union all
+select count(*)               from public.conversation_analytics where started_at < now() - interval '12 months'
+union all
+select count(*)               from public.unanswered_questions   where created_at < now() - interval '12 months';
+```
+
+Bei einem frisch aufgesetzten Projekt sind lauter Nullen der erwartete Beleg dafür, dass
+die Routine arbeitet.
 
 ## Fristen ändern
 

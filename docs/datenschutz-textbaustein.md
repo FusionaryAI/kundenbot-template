@@ -79,11 +79,15 @@ Nutzungsstatistiken und gespeicherte Fragen werden nach **12 Monaten** gelöscht
 Verlauf Ihrer Konversation wird nicht dauerhaft gespeichert. Die Löschung erfolgt
 automatisiert durch eine täglich laufende Routine.
 
-> **Vor Verwendung prüfen:** Diese Angaben setzen voraus, dass die Migration
-> `supabase/migrations/20260812120000_add_data_retention.sql` in der Datenbank des
-> Projekts eingespielt ist (siehe `docs/loeschroutine.md`). Solange das nicht der Fall
-> ist, darf der Absatz **nicht** so veröffentlicht werden — eine zugesagte, aber nicht
-> stattfindende Löschung ist ein eigenständiger Verstoß.
+> **Verifiziert am 16.08.2026** für das Referenzprojekt: Cron-Job `purge-expired-data`
+> aktiv (täglich 03:15 UTC), Funktionslauf erfolgreich, Protokollierung in
+> `retention_log` bestätigt.
+>
+> **Bei jedem neuen Kundenprojekt erneut prüfen:** Die Migration
+> `supabase/migrations/20260812120000_add_data_retention.sql` muss in der jeweiligen
+> Datenbank eingespielt und einmal getestet sein (siehe `docs/loeschroutine.md`).
+> Ohne laufende Routine darf der Absatz **nicht** veröffentlicht werden — eine
+> zugesagte, aber nicht stattfindende Löschung ist ein eigenständiger Verstoß.
 
 **Ihre Rechte**
 Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung,
