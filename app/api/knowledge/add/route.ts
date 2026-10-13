@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { supaAdmin } from "@/lib/db";
+import { llm, embeddingModel } from "@/lib/llm";
 import { requireTenantAccess } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
@@ -42,10 +42,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Embedding generieren
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-
-    const embeddingResponse = await openai.embeddings.create({
-      model: "text-embedding-3-small",
+    const embeddingResponse = await llm().embeddings.create({
+      model: embeddingModel(),
       input: content,
     });
 

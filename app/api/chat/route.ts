@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { randomUUID } from "crypto";
 import { supaAdmin } from "@/lib/db";
 import { recordConversationTurn, recordUnansweredQuestion } from "@/lib/analytics";
 import { resolveVertical } from "@/lib/verticals/registry";
 import { getIntegration, integrationsForVertical } from "@/lib/integrations/registry";
+import { llm, chatModel, embeddingModel, parseJsonReply, ragThresholds } from "@/lib/llm";
 
 export const runtime = "nodejs";
 
@@ -50,16 +50,15 @@ type HandoffState = {
   page_context?: PageContext | null;
 };
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
 // RAG Schwellenwerte (erhöht für schärfere Antworten)
-const MIN_SIMILARITY = 0.30;
-const KB_GOOD_ENOUGH = 0.32;
-const HIGH_CONF_SIM = 0.45;
-const MID_CONF_SIM = 0.35;
-const MARGIN_CONF = 0.08;
+const {
+  min: MIN_SIMILARITY,
+  goodEnough: KB_GOOD_ENOUGH,
+  high: HIGH_CONF_SIM,
+  highAlt: HIGH_CONF_ALT_SIM,
+  mid: MID_CONF_SIM,
+  margin: MARGIN_CONF,
+} = ragThresholds();
 
 // --------------------
 // Helpers
@@ -213,8 +212,8 @@ function appendBookingHint(text: string, link: string | null): string {
 // --------------------
 
 async function ragSearch(tenantId: string, query: string, k = 4): Promise<RagMatch[]> {
-  const emb = await openai.embeddings.create({
-    model: "text-embedding-3-small",
+  const emb = await llm().embeddings.create({
+    model: embeddingModel(),
     input: query,
   });
   const queryEmbedding = emb.data[0].embedding;
@@ -318,15 +317,15 @@ KB-Snippets:
 ${params.kbBullets}
 `;
 
-  const resp = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const resp = await llm().chat.completions.create({
+    model: chatModel(),
     temperature: 0,
     messages: [{ role: "user", content: prompt }],
   });
 
   const raw = resp.choices[0]?.message?.content?.trim() || "{}";
   try {
-    const obj = JSON.parse(raw);
+    const obj = parseJsonReply(raw);
     const can_answer = !!obj.can_answer;
     const answer =
       typeof obj.answer === "string" && obj.answer.trim().length > 0
@@ -402,15 +401,15 @@ ${historyBlock}
 Nachricht: """${params.message}"""
 `;
 
-  const resp = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const resp = await llm().chat.completions.create({
+    model: chatModel(),
     temperature: 0.4,
     messages: [{ role: "user", content: prompt }],
   });
 
   const raw = resp.choices[0]?.message?.content?.trim() || "{}";
   try {
-    const obj = JSON.parse(raw);
+    const obj = parseJsonReply(raw);
     return {
       off_topic: !!obj.off_topic,
       answer:
@@ -610,15 +609,15 @@ Text:
 """${userText}"""
 `;
 
-  const resp = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const resp = await llm().chat.completions.create({
+    model: chatModel(),
     temperature: 0,
     messages: [{ role: "user", content: prompt }],
   });
 
   const raw = resp.choices[0]?.message?.content?.trim() || "{}";
   try {
-    const obj = JSON.parse(raw);
+    const obj = parseJsonReply(raw);
     return {
       name: typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : null,
       email: typeof obj.email === "string" && obj.email.trim() ? obj.email.trim() : null,
@@ -650,15 +649,15 @@ Gib ausschließlich JSON zurück:
 Text:
 """${userText}"""
 `;
-  const resp = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const resp = await llm().chat.completions.create({
+    model: chatModel(),
     temperature: 0,
     messages: [{ role: "user", content: prompt }],
   });
 
   const raw = resp.choices[0]?.message?.content?.trim() || "{}";
   try {
-    const obj = JSON.parse(raw);
+    const obj = parseJsonReply(raw);
     return {
       appointment_topic:
         typeof obj.appointment_topic === "string" && obj.appointment_topic.trim()
@@ -1254,7 +1253,7 @@ export async function POST(req: NextRequest) {
 
     const HIGH_CONF =
       !!best && typeof best.similarity === "number" &&
-      (best.similarity >= HIGH_CONF_SIM || (best.similarity >= 0.38 && margin >= MARGIN_CONF));
+      (best.similarity >= HIGH_CONF_SIM || (best.similarity >= HIGH_CONF_ALT_SIM && margin >= MARGIN_CONF));
 
     const MID_CONF =
       !!best && typeof best.similarity === "number" &&
@@ -1405,8 +1404,8 @@ export async function POST(req: NextRequest) {
     const system = systemPrompt(tenant.name, settings.fallback_message, safetyHint);
     const pageHint = buildPageHint(handoff.page_context ?? context ?? null);
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+    const completion = await llm().chat.completions.create({
+      model: chatModel(),
       temperature: 0.35,
       messages: [
         { role: "system", content: system },

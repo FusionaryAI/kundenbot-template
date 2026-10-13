@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { Resend } from "resend";
 import { supaAdmin } from "@/lib/db";
 import { markConversationAsLead } from "@/lib/analytics";
+import { llm, chatModel, hasLlmApiKey, parseJsonReply } from "@/lib/llm";
 
 export const runtime = "nodejs";
 
@@ -66,15 +66,13 @@ async function generateTeamBriefing(input: {
   appointment_topic?: string | null;
   appointment_window?: string | null;
 }) {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!hasLlmApiKey()) {
     return {
       one_liner: `${leadTypeLabel(input.leadType)}: ${input.message.slice(0, 140)}`,
       bullets: [] as string[],
       next_step: "Bitte prüfen und zeitnah zurückmelden.",
     };
   }
-
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const prompt = `
 Erstelle ein extrem kurzes Team-Briefing (deutsch).
@@ -107,14 +105,14 @@ Nachricht:
 `;
 
   try {
-    const resp = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+    const resp = await llm().chat.completions.create({
+      model: chatModel(),
       temperature: 0,
       messages: [{ role: "user", content: prompt }],
     });
 
     const raw = resp.choices[0]?.message?.content?.trim() || "{}";
-    const obj: unknown = JSON.parse(raw);
+    const obj: unknown = parseJsonReply(raw);
 
     const one_liner =
       typeof (obj as any).one_liner === "string" && (obj as any).one_liner.trim()
@@ -294,10 +292,16 @@ export async function POST(req: NextRequest) {
     const send = await resend.emails.send({
       from: process.env.RESEND_FROM!,
       to: settings.lead_email,
+      replyTo: process.env.RESEND_REPLY_TO || undefined,
       subject,
       html,
       text: briefing.one_liner + "\n\n" + message,
     });
+    // Resend wirft bei Ablehnung (ungültiger Key, nicht verifizierte Domain)
+    // nicht, sondern liefert `error` — ohne Log bliebe der Ausfall unsichtbar.
+    if (send.error) {
+      console.error("[leads] Resend-Versand fehlgeschlagen:", send.error.name, send.error.message);
+    }
 
     // Integrationen feuern (Slack, HubSpot, Pipedrive) – fire & forget
     const baseUrl =

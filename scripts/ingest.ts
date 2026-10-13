@@ -6,9 +6,7 @@ import { readFile } from "node:fs/promises";
 dotenv.config({ path: ".env.local" });
 
 import { supaAdmin } from "../lib/db.ts";
-import OpenAI from "openai";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+import { llm, embeddingModel } from "../lib/llm.ts";
 
 /* =========================================================
    CLI Args Helper
@@ -26,8 +24,8 @@ function hasFlag(flag: string) {
    Embedding Helper (1536-D)
 ========================================================= */
 async function embed(text: string) {
-  const r = await openai.embeddings.create({
-    model: "text-embedding-3-small",
+  const r = await llm().embeddings.create({
+    model: embeddingModel(),
     input: text,
   });
   return r.data[0].embedding;
