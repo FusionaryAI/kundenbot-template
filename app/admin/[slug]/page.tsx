@@ -1,429 +1,238 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { authedFetch } from "@/lib/api-client";
-import { useRouter, useParams } from "next/navigation";
-import Sidebar from "@/components/Sidebar";
+import { AdminTenantFrame, type AdminTenant } from "@/components/app/AdminTenant";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Field, Input, Textarea } from "@/components/ui/Field";
+import { EmptyState, ErrorNote, LoadingRows } from "@/components/ui/States";
+import { leadStatusLabel, leadStatusTone, leadTypeLabel, relativeTime } from "@/lib/lead-format";
 
-type Lead = {
-  id: string;
-  name: string | null;
-  email: string | null;
-  phone: string | null;
-  message: string;
-  type: string;
-  created_at: string;
+type Settings = {
+  welcome_message: string;
+  fallback_message: string;
+  lead_enabled: boolean;
+  lead_email: string;
+  lead_auto_reply: string;
+  public_contact_phone: string;
+  public_hours: string;
 };
 
-type TenantSettings = {
-  welcome_message: string | null;
-  fallback_message: string | null;
-  lead_enabled: boolean | null;
-  lead_email: string | null;
-  lead_auto_reply: string | null;
-};
+type RecentLead = { id: string; name: string | null; message: string | null; type: string | null; status: string | null; created_at: string };
 
-type Tenant = {
-  id: string;
-  name: string;
-  slug: string;
-};
+function Block({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+  return (
+    <section className="grid gap-6 border-t py-8 first:border-t-0 first:pt-0 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] lg:gap-12">
+      <div>
+        <h2 className="text-[0.9375rem] font-medium">{title}</h2>
+        <p className="mt-1.5 text-sm leading-relaxed text-ink2">{description}</p>
+      </div>
+      <div className="flex min-w-0 flex-col gap-5">{children}</div>
+    </section>
+  );
+}
 
-export default function TenantDetailPage() {
-  const router = useRouter();
-  const params = useParams();
-  const slug = params?.slug as string;
-
-  const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [settings, setSettings] = useState<TenantSettings | null>(null);
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
+function TenantSettings({ tenant }: { tenant: AdminTenant }) {
+  const [s, setS] = useState<Settings | null>(null);
+  const [leads, setLeads] = useState<RecentLead[] | null>(null);
   const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState("");
-  const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserPassword, setNewUserPassword] = useState("");
-  const [creatingUser, setCreatingUser] = useState(false);
-  const [createUserMsg, setCreateUserMsg] = useState("");
-
-  const [welcomeMsg, setWelcomeMsg] = useState("");
-  const [fallbackMsg, setFallbackMsg] = useState("");
-  const [leadEmail, setLeadEmail] = useState("");
-  const [leadEnabled, setLeadEnabled] = useState(true);
-  const [leadAutoReply, setLeadAutoReply] = useState("");
+  const [result, setResult] = useState<"saved" | "error" | null>(null);
+  const [userEmail, setUserEmail] = useState("");
+  const [userPassword, setUserPassword] = useState("");
+  const [userBusy, setUserBusy] = useState(false);
+  const [userResult, setUserResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
-    async function load() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push("/login"); return; }
-
-      const { data: roleData } = await supabase
-        .from("user_roles").select("role").eq("user_id", user.id).single();
-
-      if (!roleData || roleData.role !== "super_admin") {
-        router.push("/dashboard"); return;
-      }
-
-      const { data: tenantData } = await supabase
-        .from("tenants").select("id, name, slug").eq("slug", slug).single();
-
-      if (!tenantData) { router.push("/admin"); return; }
-      setTenant(tenantData);
-
-      const { data: settingsData } = await supabase
+    Promise.all([
+      supabase
         .from("tenant_settings")
-        .select("welcome_message, fallback_message, lead_enabled, lead_email, lead_auto_reply")
-        .eq("tenant_id", tenantData.id).single();
-
-      if (settingsData) {
-        setSettings(settingsData);
-        setWelcomeMsg(settingsData.welcome_message ?? "");
-        setFallbackMsg(settingsData.fallback_message ?? "");
-        setLeadEmail(settingsData.lead_email ?? "");
-        setLeadEnabled(settingsData.lead_enabled ?? true);
-        setLeadAutoReply(settingsData.lead_auto_reply ?? "");
-      }
-
-      const { data: leadsData } = await supabase
+        .select("welcome_message, fallback_message, lead_enabled, lead_email, lead_auto_reply, public_contact_phone, public_hours")
+        .eq("tenant_id", tenant.id)
+        .maybeSingle(),
+      supabase
         .from("leads")
-        .select("id, name, email, phone, message, type, created_at")
-        .eq("tenant_id", tenantData.id)
+        .select("id, name, message, type, status, created_at")
+        .eq("tenant_id", tenant.id)
         .order("created_at", { ascending: false })
-        .limit(50);
+        .limit(10),
+    ]).then(([settings, recent]) => {
+      const d = settings.data;
+      setS({
+        welcome_message: d?.welcome_message ?? "",
+        fallback_message: d?.fallback_message ?? "",
+        lead_enabled: d?.lead_enabled !== false,
+        lead_email: d?.lead_email ?? "",
+        lead_auto_reply: d?.lead_auto_reply ?? "",
+        public_contact_phone: d?.public_contact_phone ?? "",
+        public_hours: d?.public_hours ?? "",
+      });
+      setLeads((recent.data as RecentLead[]) ?? []);
+    });
+  }, [tenant.id]);
 
-      setLeads(leadsData ?? []);
-      setLoading(false);
-    }
-    load();
-  }, [slug, router]);
+  function set<K extends keyof Settings>(key: K, value: Settings[K]) {
+    setS((prev) => (prev ? { ...prev, [key]: value } : prev));
+  }
 
-  async function handleSave() {
-    if (!tenant) return;
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!s) return;
     setSaving(true);
-    setSaveMsg("");
-
+    setResult(null);
     const { error } = await supabase
       .from("tenant_settings")
       .update({
-        welcome_message: welcomeMsg,
-        fallback_message: fallbackMsg,
-        lead_email: leadEmail,
-        lead_enabled: leadEnabled,
-        lead_auto_reply: leadAutoReply,
+        ...s,
+        lead_email: s.lead_email.trim() || null,
+        public_contact_phone: s.public_contact_phone.trim() || null,
+        public_hours: s.public_hours.trim() || null,
       })
       .eq("tenant_id", tenant.id);
-
     setSaving(false);
-    setSaveMsg(error ? "Fehler beim Speichern." : "Gespeichert!");
-    setTimeout(() => setSaveMsg(""), 3000);
+    setResult(error ? "error" : "saved");
+    if (!error) setTimeout(() => setResult(null), 2500);
   }
 
-  function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString("de-DE", {
-      day: "2-digit", month: "2-digit", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
+  async function createUser(e: React.FormEvent) {
+    e.preventDefault();
+    setUserBusy(true);
+    setUserResult(null);
+    try {
+      const res = await authedFetch("/api/create-client-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: userEmail, password: userPassword, tenant_id: tenant.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error);
+      setUserResult({ ok: true, text: `Zugang für ${data.email ?? userEmail} angelegt.` });
+      setUserEmail("");
+      setUserPassword("");
+    } catch (err) {
+      setUserResult({ ok: false, text: err instanceof Error && err.message ? err.message : "Anlegen fehlgeschlagen." });
+    } finally {
+      setUserBusy(false);
+    }
   }
 
-  function leadTypLabel(t: string) {
-    if (t === "appointment") return "Termin";
-    if (t === "callback") return "Rückruf";
-    return "Kontakt";
-  }
-
-  function leadTypColor(t: string) {
-    if (t === "appointment") return { bg: "#E6F1FB", color: "#185FA5" };
-    if (t === "callback") return { bg: "#FAEEDA", color: "#854F0B" };
-    return { bg: "#F1EFE8", color: "#5F5E5A" };
-  }
-
-  const inputStyle = {
-    width: "100%",
-    background: "#f5f5f3",
-    color: "#111",
-    borderRadius: "8px",
-    padding: "8px 12px",
-    fontSize: "13px",
-    border: "0.5px solid rgba(0,0,0,0.12)",
-    outline: "none",
-    boxSizing: "border-box" as const,
-  };
-
-  const labelStyle = {
-    fontSize: "11px",
-    color: "#888",
-    display: "block" as const,
-    marginBottom: "4px",
-  };
-
-  const sectionStyle = {
-    background: "#fff",
-    border: "0.5px solid rgba(0,0,0,0.08)",
-    borderRadius: "12px",
-    padding: "20px 24px",
-  };
-
-  if (loading) {
-    return (
-      <div style={{ display: "flex", minHeight: "100vh", background: "#0a0a0a", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "14px" }}>Wird geladen...</p>
-      </div>
-    );
-  }
+  if (!s) return <LoadingRows rows={6} />;
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#f5f5f3" }}>
-      <Sidebar role="super_admin" tenantName="Fusionary AI" />
+    <div className="flex flex-col">
+      <form onSubmit={save}>
+        <Block title="Assistent" description="Begrüßung und Antwort, wenn das Wissen nicht reicht. Der KI-Hinweis steht immer davor.">
+          <Field label="Begrüßung" htmlFor="welcome">
+            <Input id="welcome" value={s.welcome_message} onChange={(e) => set("welcome_message", e.target.value)} />
+          </Field>
+          <Field label="Wenn keine Antwort bekannt ist" htmlFor="fallback">
+            <Textarea id="fallback" rows={3} value={s.fallback_message} onChange={(e) => set("fallback_message", e.target.value)} />
+          </Field>
+        </Block>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <Block title="Anfragen" description="Ob der Assistent Rückruf- und Terminwünsche aufnimmt und wohin sie gehen.">
+          <label className="flex items-start gap-3 text-sm">
+            <input
+              type="checkbox"
+              checked={s.lead_enabled}
+              onChange={(e) => set("lead_enabled", e.target.checked)}
+              className="mt-0.5 size-4 accent-[var(--color-accent)]"
+            />
+            <span>
+              <span className="font-medium text-ink">Anfragen aufnehmen und weiterleiten</span>
+              <span className="mt-0.5 block text-ink2">
+                Aus: Der Assistent verweist nur auf die Kontaktdaten. Bei Praxen vorher die Datenschutzfrage klären.
+              </span>
+            </span>
+          </label>
+          <Field label="E-Mail für Anfragen" htmlFor="leadEmail">
+            <Input id="leadEmail" type="email" value={s.lead_email} onChange={(e) => set("lead_email", e.target.value)} disabled={!s.lead_enabled} />
+          </Field>
+          <Field label="Bestätigung an den Besucher" htmlFor="autoReply">
+            <Input id="autoReply" value={s.lead_auto_reply} onChange={(e) => set("lead_auto_reply", e.target.value)} disabled={!s.lead_enabled} />
+          </Field>
+        </Block>
 
-        {/* Topbar */}
-        <div style={{
-          background: "#fff",
-          borderBottom: "0.5px solid rgba(0,0,0,0.08)",
-          padding: "18px 28px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}>
+        <Block
+          title="Direkter Kontakt"
+          description="Nennt der Assistent, wenn er etwas nicht übernehmen darf, z. B. bei medizinischen Fragen."
+        >
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Telefon" htmlFor="phone">
+              <Input id="phone" type="tel" value={s.public_contact_phone} onChange={(e) => set("public_contact_phone", e.target.value)} />
+            </Field>
+            <Field label="Telefonzeiten" htmlFor="hours" hint="Freitext, erscheint in Klammern hinter der Nummer.">
+              <Input id="hours" value={s.public_hours} onChange={(e) => set("public_hours", e.target.value)} placeholder="Mo–Fr 9:00–12:00 Uhr" />
+            </Field>
+          </div>
+          {result === "error" && <ErrorNote>Speichern fehlgeschlagen.</ErrorNote>}
+          <div className="flex items-center gap-3">
+            <Button type="submit" disabled={saving}>{saving ? "Wird gespeichert …" : "Einstellungen speichern"}</Button>
+            {result === "saved" && <span role="status" className="text-[0.8125rem] text-accent">Gespeichert</span>}
+          </div>
+        </Block>
+      </form>
+
+      <Block title="Letzte Anfragen" description="Die zehn jüngsten Anfragen dieses Kunden.">
+        {leads === null ? (
+          <LoadingRows rows={3} />
+        ) : leads.length === 0 ? (
+          <EmptyState title="Noch keine Anfragen" />
+        ) : (
+          <ul className="divide-y border-y">
+            {leads.map((l) => (
+              <li key={l.id} className="flex items-start justify-between gap-4 py-3 text-sm">
+                <div className="min-w-0">
+                  <p className="text-ink">
+                    <span className="font-medium">{l.name || "Ohne Namen"}</span>
+                    <span className="ml-2 text-ink3">{leadTypeLabel(l.type)}</span>
+                  </p>
+                  {l.message && <p className="mt-0.5 line-clamp-1 text-ink2">{l.message}</p>}
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <Badge tone={leadStatusTone(l.status)}>{leadStatusLabel(l.status)}</Badge>
+                  <span className="text-xs tabular-nums text-ink3">{relativeTime(l.created_at)}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Block>
+
+      <Block title="Weiterer Zugang" description="Zusätzliche Person des Kunden, die das Dashboard nutzen soll.">
+        <form onSubmit={createUser} className="flex flex-col gap-5">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="E-Mail" htmlFor="userEmail">
+              <Input id="userEmail" type="email" required autoComplete="off" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} />
+            </Field>
+            <Field label="Startpasswort" htmlFor="userPassword" hint="Mindestens 8 Zeichen.">
+              <Input
+                id="userPassword"
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={userPassword}
+                onChange={(e) => setUserPassword(e.target.value)}
+              />
+            </Field>
+          </div>
+          {userResult &&
+            (userResult.ok ? <p role="status" className="text-sm text-accent">{userResult.text}</p> : <ErrorNote>{userResult.text}</ErrorNote>)}
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <button
-                onClick={() => router.push("/admin")}
-                style={{ background: "none", border: "none", color: "#888", fontSize: "13px", cursor: "pointer", padding: 0 }}
-              >
-                ← Alle Kunden
-              </button>
-              <span style={{ color: "#ccc" }}>/</span>
-              <span style={{ fontSize: "13px", color: "#111", fontWeight: 500 }}>{tenant?.name}</span>
-            </div>
-            <p style={{ fontSize: "12px", color: "#888", marginTop: "3px" }}>
-              Einstellungen, Leads & Zugang verwalten
-            </p>
+            <Button type="submit" variant="secondary" disabled={userBusy}>
+              {userBusy ? "Wird angelegt …" : "Zugang anlegen"}
+            </Button>
           </div>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              onClick={() => router.push(`/admin/${slug}/knowledge`)}
-              style={{
-                fontSize: "13px",
-                padding: "8px 16px",
-                borderRadius: "8px",
-                border: "0.5px solid rgba(0,0,0,0.15)",
-                background: "transparent",
-                color: "#444",
-                cursor: "pointer",
-              }}
-            >
-              Wissensbasis →
-            </button>
-            <button
-              onClick={() => router.push(`/admin/${slug}/integrations`)}
-              style={{
-                fontSize: "13px",
-                padding: "8px 16px",
-                borderRadius: "8px",
-                border: "0.5px solid rgba(91,83,216,0.3)",
-                background: "#f5f4ff",
-                color: "#5b53d8",
-                cursor: "pointer",
-              }}
-            >
-              Integrationen →
-            </button>
-          </div>
-        </div>
-
-        <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "20px" }}>
-
-          {/* Bot-Einstellungen */}
-          <div style={sectionStyle}>
-            <p style={{ fontSize: "13px", fontWeight: 500, color: "#111", marginBottom: "16px" }}>
-              Bot-Einstellungen
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              <div>
-                <label style={labelStyle}>Willkommensnachricht</label>
-                <input value={welcomeMsg} onChange={(e) => setWelcomeMsg(e.target.value)} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>Fallback-Nachricht</label>
-                <input value={fallbackMsg} onChange={(e) => setFallbackMsg(e.target.value)} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>Lead-E-Mail (wohin werden Leads gesendet)</label>
-                <input value={leadEmail} onChange={(e) => setLeadEmail(e.target.value)} style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>Auto-Reply an den Nutzer nach Lead</label>
-                <input value={leadAutoReply} onChange={(e) => setLeadAutoReply(e.target.value)} style={inputStyle} />
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <input
-                  type="checkbox"
-                  id="lead-enabled"
-                  checked={leadEnabled}
-                  onChange={(e) => setLeadEnabled(e.target.checked)}
-                  style={{ width: "14px", height: "14px", accentColor: "#111" }}
-                />
-                <label htmlFor="lead-enabled" style={{ fontSize: "13px", color: "#444" }}>
-                  Lead-Erfassung aktiv
-                </label>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "4px" }}>
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  style={{
-                    background: "#111", color: "#fff", border: "none",
-                    borderRadius: "8px", padding: "8px 18px", fontSize: "13px",
-                    fontWeight: 500, cursor: "pointer", opacity: saving ? 0.5 : 1,
-                  }}
-                >
-                  {saving ? "Wird gespeichert..." : "Speichern"}
-                </button>
-                {saveMsg && (
-                  <span style={{ fontSize: "12px", color: saveMsg.includes("Fehler") ? "#E24B4A" : "#3B6D11" }}>
-                    {saveMsg}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Leads */}
-          <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-              <p style={{ fontSize: "13px", fontWeight: 500, color: "#111" }}>Leads</p>
-              <span style={{ fontSize: "12px", color: "#888" }}>{leads.length} gesamt</span>
-            </div>
-
-            {leads.length === 0 ? (
-              <div style={{ ...sectionStyle, textAlign: "center" }}>
-                <p style={{ fontSize: "13px", color: "#aaa" }}>Noch keine Leads vorhanden.</p>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {leads.map((lead) => {
-                  const tagStyle = leadTypColor(lead.type);
-                  return (
-                    <div key={lead.id} style={{
-                      background: "#fff",
-                      border: "0.5px solid rgba(0,0,0,0.08)",
-                      borderRadius: "12px",
-                      padding: "14px 18px",
-                      display: "flex",
-                      alignItems: "flex-start",
-                      justifyContent: "space-between",
-                      gap: "12px",
-                    }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                          <span style={{ fontSize: "13px", fontWeight: 500, color: "#111" }}>
-                            {lead.name ?? "Kein Name"}
-                          </span>
-                          <span style={{
-                            fontSize: "11px", padding: "2px 8px", borderRadius: "20px",
-                            background: tagStyle.bg, color: tagStyle.color, fontWeight: 500,
-                          }}>
-                            {leadTypLabel(lead.type)}
-                          </span>
-                        </div>
-                        <p style={{
-                          fontSize: "12px", color: "#666",
-                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "400px",
-                        }}>
-                          {lead.message}
-                        </p>
-                        <div style={{ display: "flex", gap: "12px", marginTop: "4px" }}>
-                          {lead.email && <span style={{ fontSize: "11px", color: "#aaa" }}>✉ {lead.email}</span>}
-                          {lead.phone && <span style={{ fontSize: "11px", color: "#aaa" }}>✆ {lead.phone}</span>}
-                        </div>
-                      </div>
-                      <span style={{ fontSize: "11px", color: "#aaa", flexShrink: 0 }}>
-                        {formatDate(lead.created_at)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Kunden-Zugang */}
-          <div style={sectionStyle}>
-            <p style={{ fontSize: "13px", fontWeight: 500, color: "#111", marginBottom: "4px" }}>
-              Kunden-Zugang anlegen
-            </p>
-            <p style={{ fontSize: "12px", color: "#888", marginBottom: "16px" }}>
-              Erstelle einen Login für deinen Kunden.
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              <div>
-                <label style={labelStyle}>E-Mail des Kunden</label>
-                <input
-                  value={newUserEmail}
-                  onChange={(e) => setNewUserEmail(e.target.value)}
-                  placeholder="kunde@beispiel.de"
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Passwort</label>
-                <input
-                  type="password"
-                  value={newUserPassword}
-                  onChange={(e) => setNewUserPassword(e.target.value)}
-                  placeholder="Mindestens 8 Zeichen"
-                  style={inputStyle}
-                />
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <button
-                  onClick={async () => {
-                    if (!tenant || !newUserEmail || !newUserPassword) return;
-                    setCreatingUser(true);
-                    setCreateUserMsg("");
-                    const res = await authedFetch("/api/create-client-user", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        email: newUserEmail,
-                        password: newUserPassword,
-                        tenant_id: tenant.id,
-                      }),
-                    });
-                    const data = await res.json();
-                    setCreatingUser(false);
-                    if (data.ok) {
-                      setCreateUserMsg(`Zugang für ${data.email} erfolgreich angelegt!`);
-                      setNewUserEmail("");
-                      setNewUserPassword("");
-                    } else {
-                      setCreateUserMsg(`Fehler: ${data.error}`);
-                    }
-                    setTimeout(() => setCreateUserMsg(""), 5000);
-                  }}
-                  disabled={creatingUser || !newUserEmail || !newUserPassword}
-                  style={{
-                    background: "#111", color: "#fff", border: "none",
-                    borderRadius: "8px", padding: "8px 18px", fontSize: "13px",
-                    fontWeight: 500, cursor: "pointer",
-                    opacity: creatingUser || !newUserEmail || !newUserPassword ? 0.5 : 1,
-                  }}
-                >
-                  {creatingUser ? "Wird angelegt..." : "Zugang anlegen"}
-                </button>
-                {createUserMsg && (
-                  <span style={{ fontSize: "12px", color: createUserMsg.includes("Fehler") ? "#E24B4A" : "#3B6D11" }}>
-                    {createUserMsg}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </div>
+        </form>
+      </Block>
     </div>
   );
+}
+
+export default function AdminTenantPage() {
+  const { slug } = useParams<{ slug: string }>();
+  return <AdminTenantFrame slug={slug}>{(tenant) => <TenantSettings tenant={tenant} />}</AdminTenantFrame>;
 }

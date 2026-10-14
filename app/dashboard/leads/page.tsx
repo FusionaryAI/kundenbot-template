@@ -1,245 +1,161 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { useRouter } from "next/navigation";
-import Sidebar from "@/components/Sidebar";
 import { useAuth } from "@/hooks/useAuth";
-import { t, glass, topbar, DashboardShell, leadTypeStyle, statusStyleDark } from "@/lib/dashboardTheme";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Badge } from "@/components/ui/Badge";
+import { Input } from "@/components/ui/Field";
+import { EmptyState, ErrorNote, LoadingRows } from "@/components/ui/States";
+import { cn } from "@/lib/cn";
+import { leadStatusLabel, leadStatusTone, leadTypeLabel, relativeTime } from "@/lib/lead-format";
 
 type Lead = {
   id: string;
   name: string | null;
   email: string | null;
   phone: string | null;
-  message: string;
-  type: string;
-  status: string;
+  message: string | null;
+  type: string | null;
+  status: string | null;
   created_at: string;
 };
 
-export default function LeadsPage() {
-  const router = useRouter();
-  const { tenant, role, loading: authLoading } = useAuth();
+type Filter = "offen" | "erledigt" | "alle";
 
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [dataLoading, setDataLoading] = useState(true);
-  const [filter, setFilter] = useState<string>("alle");
-  const [revealed, setRevealed] = useState(false);
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: "offen", label: "Offen" },
+  { value: "erledigt", label: "Erledigt" },
+  { value: "alle", label: "Alle" },
+];
+
+export default function LeadsPage() {
+  const { tenant } = useAuth();
+  const [leads, setLeads] = useState<Lead[] | null>(null);
+  const [error, setError] = useState(false);
+  const [filter, setFilter] = useState<Filter>("offen");
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
-    if (!tenant?.id) return;
-    async function loadData() {
-      const { data: leadsData } = await supabase
-        .from("leads")
-        .select("id, name, email, phone, message, type, status, created_at")
-        .eq("tenant_id", tenant!.id)
-        .order("created_at", { ascending: false });
-      setLeads(leadsData ?? []);
-      setDataLoading(false);
-      requestAnimationFrame(() => requestAnimationFrame(() => setRevealed(true)));
-    }
-    loadData();
-  }, [tenant?.id]);
+    if (!tenant) return;
+    supabase
+      .from("leads")
+      .select("id, name, email, phone, message, type, status, created_at")
+      .eq("tenant_id", tenant.id)
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (error) setError(true);
+        setLeads((data as Lead[]) ?? []);
+      });
+  }, [tenant]);
 
-  const loading = authLoading || dataLoading;
+  const counts = useMemo(() => {
+    const all = leads ?? [];
+    return {
+      offen: all.filter((l) => l.status !== "erledigt").length,
+      erledigt: all.filter((l) => l.status === "erledigt").length,
+      alle: all.length,
+    };
+  }, [leads]);
 
-  function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString("de-DE", {
-      day: "2-digit", month: "2-digit", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
-  }
-
-  function leadTypLabel(type: string) {
-    return leadTypeStyle(type).label;
-  }
-
-  function leadTypColor(type: string) {
-    return leadTypeStyle(type);
-  }
-
-  function statusLabel(s: string) {
-    return statusStyleDark(s).label;
-  }
-
-  function statusStyle(s: string) {
-    return statusStyleDark(s);
-  }
-
-  const revealStyle = (delay: number) => ({
-    opacity: revealed ? 1 : 0,
-    transform: revealed ? "translateY(0)" : "translateY(10px)",
-    transition: `opacity 0.5s ease ${delay}s, transform 0.5s ease ${delay}s`,
-  });
-
-  const filteredLeads = filter === "alle"
-    ? leads
-    : leads.filter(l => l.status === filter);
-
-  const counts = {
-    alle: leads.length,
-    neu: leads.filter(l => l.status === "neu").length,
-    in_bearbeitung: leads.filter(l => l.status === "in_bearbeitung").length,
-    erledigt: leads.filter(l => l.status === "erledigt").length,
-  };
-
-  if (loading) {
-    return (
-      <div style={{ display: "flex", minHeight: "100vh", background: t.bg, alignItems: "center", justifyContent: "center" }}>
-        <p style={{ color: t.textMuted, fontSize: "14px" }}>Wird geladen...</p>
-      </div>
-    );
-  }
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (leads ?? [])
+      .filter((l) => (filter === "alle" ? true : filter === "erledigt" ? l.status === "erledigt" : l.status !== "erledigt"))
+      .filter((l) => !q || [l.name, l.email, l.phone, l.message].some((v) => v?.toLowerCase().includes(q)));
+  }, [leads, filter, query]);
 
   return (
-    <DashboardShell sidebar={<Sidebar role={role} tenantName={tenant?.name} />}>
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        title="Anfragen"
+        description="Rückruf-, Termin- und Kontaktwünsche, die der Assistent im Chat aufgenommen hat."
+      />
 
-      <div style={{
-        ...topbar,
-        padding: "22px 28px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        ...revealStyle(0),
-      }}>
-        <div>
-          <p style={{
-            fontFamily: "var(--font-instrument-serif), Georgia, serif",
-            fontSize: "24px",
-            fontWeight: 400,
-            color: t.text,
-            letterSpacing: "-0.3px",
-          }}>
-            Leads für{" "}
-            <span style={{ fontStyle: "italic", color: t.greenAccent }}>
-              {tenant?.name ?? ""}
-            </span>
-          </p>
-          <p style={{ fontSize: "12px", color: t.textMuted, marginTop: "4px" }}>
-            {leads.length} Leads gesamt
-          </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div role="tablist" aria-label="Anfragen filtern" className="inline-flex rounded-full bg-paper2 p-1">
+          {FILTERS.map((f) => (
+            <button
+              key={f.value}
+              role="tab"
+              type="button"
+              aria-selected={filter === f.value}
+              onClick={() => setFilter(f.value)}
+              className={cn(
+                "h-8 rounded-full px-4 text-[0.8125rem] transition-colors duration-150",
+                filter === f.value ? "bg-paper font-medium text-ink shadow-[0_0_0_1px_var(--color-line)]" : "text-ink2 hover:text-ink",
+              )}
+            >
+              {f.label}
+              <span className="ml-1.5 tabular-nums text-ink3">{leads ? counts[f.value] : ""}</span>
+            </button>
+          ))}
         </div>
+        <label className="relative w-full sm:w-72">
+          <span className="sr-only">Anfragen durchsuchen</span>
+          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink3" aria-hidden />
+          <Input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Name, Telefon, Anliegen …"
+            className="pl-9"
+          />
+        </label>
       </div>
 
-      <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: "16px" }}>
+      {error && <ErrorNote>Die Anfragen konnten nicht geladen werden. Bitte laden Sie die Seite neu.</ErrorNote>}
 
-        <div style={{ display: "flex", gap: "6px", ...revealStyle(0.05) }}>
-          {[
-            { key: "alle", label: "Alle" },
-            { key: "neu", label: "Neu" },
-            { key: "in_bearbeitung", label: "In Bearbeitung" },
-            { key: "erledigt", label: "Erledigt" },
-          ].map((tab) => {
-            const active = filter === tab.key;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setFilter(tab.key)}
-                style={{
-                  padding: "7px 15px",
-                  borderRadius: "20px",
-                  fontSize: "12px",
-                  fontWeight: active ? 500 : 400,
-                  border: active ? `1px solid ${t.greenBorder}` : `1px solid ${t.border}`,
-                  background: active ? t.greenSoft : "rgba(255,255,255,0.55)",
-                  color: active ? t.greenAccent : t.textMuted,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
-              >
-                {tab.label}
-                <span style={{
-                  marginLeft: "6px", fontSize: "10px",
-                  background: active ? "rgba(26,92,58,0.16)" : "rgba(18,30,22,0.06)",
-                  color: active ? t.greenAccent : t.textMuted,
-                  padding: "1px 6px", borderRadius: "10px",
-                }}>
-                  {counts[tab.key as keyof typeof counts]}
-                </span>
-              </button>
-            );
-          })}
+      {leads === null ? (
+        <LoadingRows rows={6} />
+      ) : visible.length === 0 ? (
+        <EmptyState
+          title={query ? "Keine Treffer" : filter === "offen" ? "Keine offenen Anfragen" : "Noch keine Anfragen"}
+        >
+          {query
+            ? "Versuchen Sie einen anderen Suchbegriff."
+            : "Sobald jemand im Chat einen Rückruf, Termin oder Kontakt wünscht, erscheint die Anfrage hier."}
+        </EmptyState>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b text-[0.8125rem] text-ink3">
+                <th scope="col" className="py-2.5 pr-4 font-normal">Name</th>
+                <th scope="col" className="py-2.5 pr-4 font-normal">Anliegen</th>
+                <th scope="col" className="py-2.5 pr-4 font-normal">Art</th>
+                <th scope="col" className="py-2.5 pr-4 font-normal">Eingang</th>
+                <th scope="col" className="py-2.5 font-normal">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {visible.map((lead) => (
+                <tr key={lead.id} className="group relative transition-colors duration-150 hover:bg-paper2">
+                  <td className="py-3.5 pr-4 align-top">
+                    <Link
+                      href={`/dashboard/leads/${lead.id}`}
+                      className="font-medium text-ink after:absolute after:inset-0 after:content-['']"
+                    >
+                      {lead.name || "Ohne Namen"}
+                    </Link>
+                    <p className="mt-0.5 text-[0.8125rem] text-ink3">{lead.phone || lead.email || "–"}</p>
+                  </td>
+                  <td className="max-w-[28rem] py-3.5 pr-4 align-top text-ink2">
+                    <p className="line-clamp-2">{lead.message || "–"}</p>
+                  </td>
+                  <td className="whitespace-nowrap py-3.5 pr-4 align-top text-ink2">{leadTypeLabel(lead.type)}</td>
+                  <td className="whitespace-nowrap py-3.5 pr-4 align-top tabular-nums text-ink3">{relativeTime(lead.created_at)}</td>
+                  <td className="py-3.5 align-top">
+                    <Badge tone={leadStatusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-
-        <div style={revealStyle(0.1)}>
-          {filteredLeads.length === 0 ? (
-            <div style={{
-              ...glass,
-              borderRadius: "14px", padding: "40px", textAlign: "center",
-            }}>
-              <p style={{ fontSize: "13px", color: t.textMuted }}>Keine Leads in dieser Kategorie.</p>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {filteredLeads.map((lead) => {
-                const tagStyle = leadTypColor(lead.type);
-                const statStyle = statusStyle(lead.status);
-                return (
-                  <div
-                    key={lead.id}
-                    onClick={() => router.push(`/dashboard/leads/${lead.id}`)}
-                    style={{
-                      ...glass,
-                      borderRadius: "13px", padding: "13px 16px",
-                      display: "flex", alignItems: "center", gap: "12px",
-                      cursor: "pointer", transition: "background 0.15s, border-color 0.15s",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = t.greenBorder;
-                      e.currentTarget.style.background = "rgba(255,255,255,0.8)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "rgba(255,255,255,0.7)";
-                      e.currentTarget.style.background = "rgba(255,255,255,0.55)";
-                    }}
-                  >
-                    <div style={{
-                      width: "3px", height: "40px", borderRadius: "2px",
-                      background: tagStyle.bar, flexShrink: 0,
-                    }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "7px", marginBottom: "3px" }}>
-                        <span style={{ fontSize: "13px", fontWeight: 600, color: t.text }}>
-                          {lead.name ?? "Kein Name"}
-                        </span>
-                        <span style={{
-                          fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
-                          fontWeight: 500, background: tagStyle.bg, color: tagStyle.color,
-                        }}>
-                          {leadTypLabel(lead.type)}
-                        </span>
-                        <span style={{
-                          fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
-                          fontWeight: 500, background: statStyle.bg, color: statStyle.color,
-                        }}>
-                          {statusLabel(lead.status)}
-                        </span>
-                      </div>
-                      <p style={{
-                        fontSize: "12px", color: t.textMuted,
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        maxWidth: "400px",
-                      }}>
-                        {lead.message}
-                      </p>
-                      <div style={{ display: "flex", gap: "10px", marginTop: "3px" }}>
-                        {lead.email && <span style={{ fontSize: "11px", color: t.textFaint }}>✉ {lead.email}</span>}
-                        {lead.phone && <span style={{ fontSize: "11px", color: t.textFaint }}>✆ {lead.phone}</span>}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px", flexShrink: 0 }}>
-                      <span style={{ fontSize: "11px", color: t.textFaint }}>{formatDate(lead.created_at)}</span>
-                      <span style={{ fontSize: "11px", color: t.textMuted }}>→</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-      </div>
-    </DashboardShell>
+      )}
+    </div>
   );
 }

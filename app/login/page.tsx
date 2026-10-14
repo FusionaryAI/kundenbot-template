@@ -1,267 +1,111 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import { AuthCard } from "@/components/app/AuthCard";
+import { Button } from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Field";
+import { ErrorNote } from "@/components/ui/States";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<"login" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [showReset, setShowReset] = useState(false);
-  const [resetEmail, setResetEmail] = useState("");
-  const [resetMsg, setResetMsg] = useState("");
-  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
-  async function handleLogin(e: React.FormEvent) {
+  async function login(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
+    setBusy(true);
     setError("");
-
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-
     if (error) {
-      setError("Login fehlgeschlagen. Bitte E-Mail und Passwort prüfen.");
-      setLoading(false);
+      setError("Anmeldung fehlgeschlagen. Bitte prüfen Sie E-Mail und Passwort.");
+      setBusy(false);
       return;
     }
-
     router.push("/dashboard");
   }
 
-  async function handleReset(e: React.FormEvent) {
+  async function requestReset(e: React.FormEvent) {
     e.preventDefault();
-    setResetLoading(true);
-    setResetMsg("");
-
-    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-      redirectTo: `https://dashboard.fusionaryai.de/reset-password`,
-    });
-
-    setResetLoading(false);
-    if (error) {
-      setResetMsg("Fehler beim Senden. Bitte E-Mail prüfen.");
-    } else {
-      setResetMsg("E-Mail gesendet! Prüfe deinen Posteingang.");
-    }
+    setBusy(true);
+    setError("");
+    await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
+    // Immer dieselbe Rückmeldung — verrät nicht, ob ein Konto existiert.
+    setResetSent(true);
+    setBusy(false);
   }
 
-  const inputStyle = {
-    width: "100%",
-    background: "#fafafa",
-    color: "#111",
-    borderRadius: "8px",
-    padding: "10px 14px",
-    fontSize: "13.5px",
-    border: "1px solid #efefed",
-    outline: "none",
-    boxSizing: "border-box" as const,
-    transition: "border-color 0.15s",
-    fontFamily: "inherit",
-  };
+  if (mode === "reset") {
+    return (
+      <AuthCard
+        eyebrow="Kundenbereich"
+        title="Passwort vergessen"
+        description="Wir senden Ihnen einen Link, mit dem Sie ein neues Passwort festlegen."
+      >
+        {resetSent ? (
+          <p role="status" className="rounded-element bg-accent-soft px-4 py-3 text-sm text-accent">
+            Falls ein Konto zu {email} existiert, ist die E-Mail unterwegs. Bitte prüfen Sie auch den Spam-Ordner.
+          </p>
+        ) : (
+          <form onSubmit={requestReset} className="flex flex-col gap-5">
+            <Field label="E-Mail" htmlFor="email">
+              <Input id="email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </Field>
+            <Button type="submit" disabled={busy} className="w-full">
+              {busy ? "Wird gesendet …" : "Link senden"}
+            </Button>
+          </form>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setMode("login");
+            setResetSent(false);
+          }}
+          className="mt-6 text-[0.8125rem] text-ink2 underline-offset-4 hover:text-ink hover:underline"
+        >
+          Zurück zur Anmeldung
+        </button>
+      </AuthCard>
+    );
+  }
 
   return (
-    <main style={{
-      minHeight: "100vh",
-      background: "#f7f7f5",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: "20px",
-    }}>
-      <div style={{ width: "100%", maxWidth: "400px" }}>
-
-        {/* Header */}
-        <div style={{ textAlign: "center", marginBottom: "32px" }}>
-          <p style={{
-            fontFamily: "var(--font-playfair), Georgia, serif",
-            fontSize: "32px",
-            fontWeight: 400,
-            color: "#0a0a0a",
-            letterSpacing: "-0.5px",
-            lineHeight: 1.2,
-            marginBottom: "8px",
-          }}>
-            Fusionary{" "}
-            <span style={{ fontStyle: "italic", color: "#2d5a1b" }}>AI</span>
-          </p>
-          <p style={{ fontSize: "13px", color: "#bbb" }}>
-            {showReset ? "Passwort zurücksetzen" : "Kundenportal · Anmelden"}
-          </p>
-        </div>
-
-        {/* Card */}
-        <div style={{
-          background: "#fff",
-          border: "1px solid #efefed",
-          borderRadius: "14px",
-          padding: "28px",
-        }}>
-          {!showReset ? (
-            <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div>
-                <label style={{ fontSize: "11px", color: "#999", display: "block", marginBottom: "5px", fontWeight: 500 }}>
-                  E-Mail
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  placeholder="deine@email.de"
-                  style={inputStyle}
-                  onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
-                  onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: "11px", color: "#999", display: "block", marginBottom: "5px", fontWeight: 500 }}>
-                  Passwort
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  placeholder="••••••••"
-                  style={inputStyle}
-                  onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
-                  onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
-                />
-              </div>
-
-              {error && (
-                <p style={{ fontSize: "12px", color: "#e05", background: "#fff5f5", padding: "8px 12px", borderRadius: "6px", border: "1px solid #ffd0d0" }}>
-                  {error}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                style={{
-                  width: "100%",
-                  background: "#111",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "11px",
-                  fontSize: "13.5px",
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  opacity: loading ? 0.6 : 1,
-                  transition: "all 0.15s",
-                  marginTop: "4px",
-                }}
-                onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = "#333"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "#111"; }}
-              >
-                {loading ? "Wird angemeldet..." : "Anmelden"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowReset(true)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  fontSize: "12px",
-                  color: "#bbb",
-                  cursor: "pointer",
-                  textAlign: "center",
-                  padding: "4px",
-                  transition: "color 0.15s",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.color = "#666"}
-                onMouseLeave={(e) => e.currentTarget.style.color = "#bbb"}
-              >
-                Passwort vergessen?
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleReset} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <p style={{ fontSize: "12.5px", color: "#888", lineHeight: 1.6 }}>
-                Gib deine E-Mail ein – wir senden dir einen Link zum Zurücksetzen.
-              </p>
-              <div>
-                <label style={{ fontSize: "11px", color: "#999", display: "block", marginBottom: "5px", fontWeight: 500 }}>
-                  E-Mail
-                </label>
-                <input
-                  type="email"
-                  value={resetEmail}
-                  onChange={(e) => setResetEmail(e.target.value)}
-                  required
-                  placeholder="deine@email.de"
-                  style={inputStyle}
-                  onFocus={(e) => e.currentTarget.style.borderColor = "#c8c4f8"}
-                  onBlur={(e) => e.currentTarget.style.borderColor = "#efefed"}
-                />
-              </div>
-
-              {resetMsg && (
-                <p style={{
-                  fontSize: "12px",
-                  color: resetMsg.includes("Fehler") ? "#e05" : "#3a6b10",
-                  background: resetMsg.includes("Fehler") ? "#fff5f5" : "#f0f7e8",
-                  padding: "8px 12px",
-                  borderRadius: "6px",
-                  border: `1px solid ${resetMsg.includes("Fehler") ? "#ffd0d0" : "#c8e0a0"}`,
-                }}>
-                  {resetMsg}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={resetLoading}
-                style={{
-                  width: "100%",
-                  background: "#111",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "11px",
-                  fontSize: "13.5px",
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  opacity: resetLoading ? 0.6 : 1,
-                  transition: "all 0.15s",
-                }}
-              >
-                {resetLoading ? "Wird gesendet..." : "Reset-Link senden"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => { setShowReset(false); setResetMsg(""); }}
-                style={{
-                  background: "none",
-                  border: "none",
-                  fontSize: "12px",
-                  color: "#bbb",
-                  cursor: "pointer",
-                  textAlign: "center",
-                  padding: "4px",
-                  transition: "color 0.15s",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.color = "#666"}
-                onMouseLeave={(e) => e.currentTarget.style.color = "#bbb"}
-              >
-                ← Zurück zum Login
-              </button>
-            </form>
-          )}
-        </div>
-
-        {/* Footer */}
-        <p style={{ textAlign: "center", fontSize: "11px", color: "#ccc", marginTop: "20px" }}>
-          Powered by Fusionary AI
-        </p>
-
-      </div>
-    </main>
+    <AuthCard eyebrow="Kundenbereich" title="Anmelden" description="Ihr Assistent, Ihre Anfragen und was er für Sie bewirkt.">
+      <form onSubmit={login} className="flex flex-col gap-5">
+        <Field label="E-Mail" htmlFor="email">
+          <Input id="email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+        <Field label="Passwort" htmlFor="password">
+          <Input
+            id="password"
+            type="password"
+            required
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </Field>
+        {error && <ErrorNote>{error}</ErrorNote>}
+        <Button type="submit" disabled={busy} className="w-full">
+          {busy ? "Wird angemeldet …" : "Anmelden"}
+        </Button>
+      </form>
+      <button
+        type="button"
+        onClick={() => {
+          setMode("reset");
+          setError("");
+        }}
+        className="mt-6 text-[0.8125rem] text-ink2 underline-offset-4 hover:text-ink hover:underline"
+      >
+        Passwort vergessen?
+      </button>
+    </AuthCard>
   );
 }

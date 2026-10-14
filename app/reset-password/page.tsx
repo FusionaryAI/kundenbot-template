@@ -1,111 +1,71 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import { AuthCard } from "@/components/app/AuthCard";
+import { Button } from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Field";
+import { ErrorNote } from "@/components/ui/States";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
+  const [ready, setReady] = useState(false);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [ready, setReady] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
-    // Supabase setzt die Session automatisch wenn der Reset-Link geklickt wird
+    // Der Link aus der E-Mail setzt eine Wiederherstellungs-Session.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setReady(true);
-      }
+      if (event === "PASSWORD_RECOVERY") setReady(true);
     });
-
     return () => subscription.unsubscribe();
   }, []);
 
-  async function handleReset(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-
-    if (password !== confirm) {
-      setMsg("Passwörter stimmen nicht überein.");
-      return;
-    }
-
-    if (password.length < 8) {
-      setMsg("Passwort muss mindestens 8 Zeichen lang sein.");
-      return;
-    }
-
-    setLoading(true);
-    setMsg("");
-
+    if (password.length < 8) return setError("Das Passwort braucht mindestens 8 Zeichen.");
+    if (password !== confirm) return setError("Die beiden Passwörter stimmen nicht überein.");
+    setBusy(true);
+    setError("");
     const { error } = await supabase.auth.updateUser({ password });
-
-    setLoading(false);
-
-    if (error) {
-      setMsg("Fehler beim Zurücksetzen. Bitte nochmal versuchen.");
-    } else {
-      setMsg("Passwort erfolgreich geändert!");
-      setTimeout(() => router.push("/dashboard"), 2000);
-    }
+    setBusy(false);
+    if (error) return setError("Das hat nicht geklappt. Bitte fordern Sie einen neuen Link an.");
+    setDone(true);
+    setTimeout(() => router.push("/dashboard"), 1500);
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-black">
-      <div className="w-full max-w-sm bg-zinc-900 rounded-xl p-8 border border-white/10">
-        <h1 className="text-white text-2xl font-semibold mb-2">Fusionary AI</h1>
-        <p className="text-zinc-400 text-sm mb-6">Gib dein neues Passwort ein.</p>
-
-        {!ready ? (
-          <div className="text-zinc-400 text-sm text-center py-4">
-            <p>Link wird überprüft...</p>
-            <p className="text-xs mt-2 text-zinc-600">
-              Falls diese Seite hängt, klicke den Link in der E-Mail nochmal.
-            </p>
-          </div>
-        ) : (
-          <form onSubmit={handleReset} className="flex flex-col gap-4">
-            <div>
-              <label className="text-zinc-400 text-xs mb-1 block">Neues Passwort</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                placeholder="Mindestens 8 Zeichen"
-                className="w-full bg-zinc-800 text-white rounded-lg px-4 py-2 text-sm border border-white/10 focus:outline-none focus:border-white/30"
-              />
-            </div>
-
-            <div>
-              <label className="text-zinc-400 text-xs mb-1 block">Passwort bestätigen</label>
-              <input
-                type="password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                required
-                placeholder="Passwort wiederholen"
-                className="w-full bg-zinc-800 text-white rounded-lg px-4 py-2 text-sm border border-white/10 focus:outline-none focus:border-white/30"
-              />
-            </div>
-
-            {msg && (
-              <p className={`text-xs ${msg.includes("Fehler") || msg.includes("nicht") ? "text-red-400" : "text-green-400"}`}>
-                {msg}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-white text-black font-medium rounded-lg py-2 text-sm hover:bg-zinc-200 transition disabled:opacity-50"
-            >
-              {loading ? "Wird gespeichert..." : "Passwort ändern"}
-            </button>
-          </form>
-        )}
-      </div>
-    </main>
+    <AuthCard eyebrow="Kundenbereich" title="Neues Passwort" description="Mindestens 8 Zeichen.">
+      {done ? (
+        <p role="status" className="rounded-element bg-accent-soft px-4 py-3 text-sm text-accent">
+          Passwort geändert. Sie werden weitergeleitet …
+        </p>
+      ) : !ready ? (
+        <div className="flex flex-col gap-4 text-sm text-ink2">
+          <p>Der Link wird geprüft. Wenn nichts passiert, ist er abgelaufen oder wurde bereits verwendet.</p>
+          <Link href="/login" className="text-[0.8125rem] underline underline-offset-4 hover:text-ink">
+            Neuen Link anfordern
+          </Link>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="flex flex-col gap-5">
+          <Field label="Neues Passwort" htmlFor="password">
+            <Input id="password" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+          </Field>
+          <Field label="Wiederholen" htmlFor="confirm">
+            <Input id="confirm" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          </Field>
+          {error && <ErrorNote>{error}</ErrorNote>}
+          <Button type="submit" disabled={busy} className="w-full">
+            {busy ? "Wird gespeichert …" : "Passwort speichern"}
+          </Button>
+        </form>
+      )}
+    </AuthCard>
   );
 }

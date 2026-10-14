@@ -1,45 +1,112 @@
 @import "tailwindcss";
 
-:root {
-  /* Brand */
-  --green: #1a5c3a;
-  --green-hover: #154d30;
-  --green-tint: #e2ede8;
-  --green-subtle: #1a5c3a1f;
+/* ----------------------------------------------------------------------------
+   Fusionary AI — Produkt-Oberflächen (Dashboard, Admin, Login)
+   Tokens 1:1 aus fusionaryai.de (Fusionary AI Website/app/globals.css). Bei
+   Abweichung gewinnt die Website. Design-Regeln: .impeccable.md
+---------------------------------------------------------------------------- */
+@theme {
+  --color-ink: #0f0f0e;
+  --color-ink2: #454946; /* oklch(0.40 0.006 155) */
+  --color-ink3: #666a67; /* oklch(0.52 0.006 155), 5,4:1 auf paper */
 
-  /* Neutrals (warm undertone, from fusionaryai.de) */
-  --bg: #fafaf8;
-  --bg-card: #f1efea;
-  --bg-white: #ffffff;
-  --border: #e8e6e0;
-  --border-strong: #d0cdc6;
+  --color-paper: #fcfdfc; /* oklch(0.993 0.002 155) */
+  --color-paper2: #f4f7f4; /* Flächen in Bedienelementen */
+  --color-paper3: #e8ece9;
 
-  /* Text */
-  --text: #0f0f0e;
-  --text-secondary: #4a4a47;
-  --text-muted: #888780;
+  --color-accent: #1a5c3a;
+  --color-accent2: #2d7a52;
+  --color-accent3: #4a9d6e;
+  --color-accent-soft: #e6efe9; /* Hintergrund aktiver Navigation/Badges */
 
-  /* Status */
-  --status-green: #1a5c3a;
-  --status-amber: #85500b;
-  --status-amber-bg: #faeeda;
+  /* Hinweis-Ton (Wissenslücken, „neu"): gedecktes Ocker statt Signal-Gelb */
+  --color-warn: #85500b;
+  --color-warn-soft: #f6eedf;
+  --color-danger: #a8321f;
+  --color-danger-soft: #f8e9e6;
+
+  --color-line: rgba(15, 15, 14, 0.1);
+  --color-line2: rgba(15, 15, 14, 0.06);
+
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-serif: var(--font-newsreader), ui-serif, Georgia, "Times New Roman",
+    serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo,
+    monospace;
+
+  /* Radius-System: Interaktives rounded-full · Flächen 16px · Elemente in
+     Flächen 10px. Andere Werte brauchen einen Grund im Kommentar. */
+  --radius-flaeche: 1rem;
+  --radius-element: 0.625rem;
+
+  --ease-fluid: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-@theme inline {
-  --color-background: var(--bg);
-  --color-foreground: var(--text);
-  --font-sans: var(--font-dm-sans);
-  --font-serif: var(--font-instrument-serif);
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  *,
+  *::before,
+  *::after {
+    border-color: var(--color-line);
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-feature-settings: "cv01", "ss01";
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-paper);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
 }
 
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-dm-sans), 'DM Sans', sans-serif;
+@layer components {
+  /* Seitentitel: Newsreader, nur hier im Produkt. */
+  .font-display {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+
+  /* Registerzeile: Mono, Versalien. Sparsam — eine je Abschnitt höchstens. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-ink3);
+  }
 }
 
-html, body {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: geometricPrecision;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
