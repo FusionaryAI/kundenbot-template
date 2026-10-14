@@ -3,8 +3,11 @@ import { randomUUID } from "crypto";
 import { supaAdmin } from "@/lib/db";
 import { recordConversationTurn, recordUnansweredQuestion } from "@/lib/analytics";
 import { resolveVertical } from "@/lib/verticals/registry";
-import { getIntegration, integrationsForVertical } from "@/lib/integrations/registry";
+import { integrationsForVertical } from "@/lib/integrations/registry";
+import { loadIntegrations } from "@/lib/integrations/store";
 import { llm, chatModel, embeddingModel, parseJsonReply, ragThresholds } from "@/lib/llm";
+import { createLead, LeadError } from "@/lib/leads";
+import { checkRateLimit, RATE_LIMITS, tooManyRequests } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -148,10 +151,7 @@ function appendSoftHandoffHint(text: string, leadEnabled: boolean, hint: string)
 
 async function getTenantBySlug(slug: string) {
   const { data, error } = await supaAdmin.from("tenants").select("*").eq("slug", slug).single();
-  if (error || !data) {
-    console.error("getTenantBySlug error:", error, "for slug:", slug);
-    throw new Error("Tenant not found");
-  }
+  if (error || !data) throw new LeadError(404, "unknown tenant");
   return data;
 }
 
@@ -184,17 +184,10 @@ async function getBookingLink(
   const candidates = integrationsForVertical(verticalId).filter((a) => a.bookingLink);
   if (candidates.length === 0) return null;
 
-  const { data } = await supaAdmin
-    .from("tenant_integrations")
-    .select("integration, config")
-    .eq("tenant_id", tenantId)
-    .eq("enabled", true)
-    .in("integration", candidates.map((c) => c.id));
-
-  for (const row of data ?? []) {
-    const adapter = getIntegration(row.integration as string);
-    if (!adapter?.bookingLink) continue;
-    const parsed = adapter.configSchema.safeParse(row.config ?? {});
+  const stored = await loadIntegrations(tenantId, candidates.map((c) => c.id));
+  for (const { adapter, config } of stored) {
+    if (!adapter.bookingLink) continue;
+    const parsed = adapter.configSchema.safeParse(config);
     if (!parsed.success) continue;
     const link = adapter.bookingLink(parsed.data, ctx);
     if (link) return link;
@@ -677,7 +670,8 @@ Text:
 // Lead Delivery
 // --------------------
 
-async function sendLeadViaApi(
+async function sendLead(
+  req: NextRequest,
   slug: string,
   lead: {
     type: LeadType;
@@ -692,39 +686,38 @@ async function sendLeadViaApi(
     conversation_id?: string | null;
   },
 ) {
-  const publicBase = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
-  const vercelHost = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
-  const base = publicBase || vercelHost;
-  if (!base) throw new Error("Missing base URL. Set NEXT_PUBLIC_BASE_URL in Vercel env.");
+  // Gleiches Limit wie POST /api/leads: Der Handoff-Zustand kommt vom Client,
+  // über den Chat ließen sich sonst Leads am Lead-Limit vorbei erzeugen.
+  const limit = await checkRateLimit(supaAdmin, req.headers, RATE_LIMITS.leads);
+  if (limit.limited) throw new LeadError(429, "rate limited");
 
-  const res = await fetch(`${base}/api/leads`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      slug,
-      type: lead.type,
-      name: lead.name,
-      email: lead.email,
-      phone: lead.phone,
-      preferred_contact: lead.preferred_contact ?? null,
-      message: lead.message,
-      appointment_topic: lead.appointment_topic ?? null,
-      appointment_window: lead.appointment_window ?? null,
-      conversation_id: lead.conversation_id ?? null,
-      metadata: lead.metadata ?? { source: "chat" },
-    }),
+  const result = await createLead({
+    slug,
+    type: lead.type,
+    name: lead.name,
+    email: lead.email,
+    phone: lead.phone,
+    preferred_contact: lead.preferred_contact ?? null,
+    message: lead.message,
+    appointment_topic: lead.appointment_topic ?? null,
+    appointment_window: lead.appointment_window ?? null,
+    conversation_id: lead.conversation_id ?? null,
+    metadata: lead.metadata ?? { source: "chat" },
   });
-
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || !json?.ok) throw new Error(json?.error || "Lead delivery failed");
-  return json as { ok: true; lead_id: string; email_sent?: boolean; message: string };
+  return { ok: true as const, ...result };
 }
 
 // --------------------
 // Handler
 // --------------------
 
+// Obergrenze je Nachricht: schützt LLM-Budget und Prompt vor Überlänge.
+const MAX_MESSAGE_CHARS = 2000;
+
 export async function POST(req: NextRequest) {
+  const limit = await checkRateLimit(supaAdmin, req.headers, RATE_LIMITS.chat);
+  if (limit.limited) return tooManyRequests(limit.retryAfterSeconds);
+
   try {
     let body: any = {};
     try {
@@ -774,7 +767,15 @@ export async function POST(req: NextRequest) {
       : [];
 
     if (!message) return NextResponse.json({ error: "message required" }, { status: 400 });
-    if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
+    if (typeof message !== "string" || message.length > MAX_MESSAGE_CHARS) {
+      return NextResponse.json(
+        { error: `Bitte fassen Sie Ihre Nachricht kürzer (höchstens ${MAX_MESSAGE_CHARS} Zeichen).` },
+        { status: 400 },
+      );
+    }
+    if (!slug || typeof slug !== "string" || slug.length > 100) {
+      return NextResponse.json({ error: "slug required" }, { status: 400 });
+    }
 
     const tenant = await getTenantBySlug(slug);
     const settings = await getTenantSettings(tenant.id);
@@ -1052,7 +1053,7 @@ export async function POST(req: NextRequest) {
               handoff,
             });
           }
-          const result = await sendLeadViaApi(slug, {
+          const result = await sendLead(req, slug, {
             type: "contact",
             name: handoff.name,
             email: handoff.email,
@@ -1150,7 +1151,7 @@ export async function POST(req: NextRequest) {
 
       const leadType: LeadType = handoff.lead_type || "contact";
       const leadMessage = handoff.message || message.trim() || "Kontaktanfrage";
-      const result = await sendLeadViaApi(slug, {
+      const result = await sendLead(req, slug, {
         type: leadType,
         name: handoff.name,
         email: handoff.email,
@@ -1258,16 +1259,6 @@ export async function POST(req: NextRequest) {
     const MID_CONF =
       !!best && typeof best.similarity === "number" &&
       best.similarity >= MID_CONF_SIM && !HIGH_CONF;
-
-    if (url.searchParams.get("debug") === "1") {
-      return NextResponse.json({
-        slug, tenant, settings, leadEnabled, matches: sorted,
-        threshold: MIN_SIMILARITY, kb_good_enough: KB_GOOD_ENOUGH,
-        best_similarity: best?.similarity ?? null,
-        second_similarity: second?.similarity ?? null,
-        margin, HIGH_CONF, MID_CONF, handoff, context, contactInfo,
-      });
-    }
 
     // --- 3.5) Off-Topic-Deflektor: wenn RAG schwach ist, pruefen ob die Frage
     // ueberhaupt zum Fachgebiet gehoert. Falls nicht: freundlich abspeisen und
@@ -1446,7 +1437,15 @@ ${profile.kbAnswerInstruction}`,
     });
 
   } catch (e: any) {
+    if (e instanceof LeadError) {
+      if (e.status === 429) return tooManyRequests(RATE_LIMITS.leads.windowSeconds);
+      return NextResponse.json({ ok: false, error: e.message }, { status: e.status });
+    }
+    // Details nur ins Server-Log — Clients erhalten keine Interna.
     console.error("API ERROR:", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "server error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "Technischer Fehler: Die Anfrage konnte nicht verarbeitet werden." },
+      { status: 500 },
+    );
   }
 }

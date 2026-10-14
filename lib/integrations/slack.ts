@@ -2,7 +2,12 @@ import { z } from "zod";
 import type { IntegrationAdapter, LeadPayload } from "./types";
 
 const configSchema = z.object({
-  webhook_url: z.string().url(),
+  // Nur echte Slack-Webhooks: Der Server ruft die URL selbst auf — eine
+  // beliebige URL wäre ein Hebel für Anfragen an interne Ziele (SSRF).
+  webhook_url: z
+    .string()
+    .url()
+    .refine((u) => u.startsWith("https://hooks.slack.com/"), "muss mit https://hooks.slack.com/ beginnen"),
 });
 type Config = z.infer<typeof configSchema>;
 
@@ -19,7 +24,8 @@ export const slackAdapter: IntegrationAdapter<Config> = {
   icon: "💬",
   setupHint: "Einrichten unter: Slack → Apps → Incoming Webhooks",
   fields: [
-    { key: "webhook_url", label: "Webhook URL", placeholder: "https://hooks.slack.com/services/..." },
+    // Die Webhook-URL ist selbst das Zugangsgeheimnis (wer sie kennt, kann posten).
+    { key: "webhook_url", label: "Webhook URL", placeholder: "https://hooks.slack.com/services/...", secret: true },
   ],
   verticals: "all",
   configSchema,

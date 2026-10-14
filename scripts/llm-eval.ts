@@ -8,7 +8,6 @@ dotenv.config({ path: ".env.local" });
 if (process.argv[2]) process.env.LLM_CHAT_MODEL = process.argv[2];
 
 // Dynamischer Import erst nach dotenv; Node (strip-types) verlangt die .ts-Endung.
-// @ts-expect-error TS5097 — Endung ist für die direkte Ausführung mit Node nötig
 const { llm, chatModel, parseJsonReply } = await import("../lib/llm.ts");
 
 type Reply = Record<string, string | boolean | null | undefined>;

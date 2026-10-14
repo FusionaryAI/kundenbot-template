@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { authedFetch } from "@/lib/api-client";
 import { integrationsForVertical } from "@/lib/integrations/registry";
 import type { IntegrationAdapter } from "@/lib/integrations/types";
@@ -29,6 +28,16 @@ export type IntegrationsEditorTheme = {
 };
 
 type ConfigState = Record<string, Record<string, string>>;
+type StoredIntegrations = Record<string, { values: Record<string, string>; secretsSet: string[] }>;
+
+// Gespeicherte Konfiguration vom Server — geheime Felder nur als "ist gesetzt".
+async function fetchStoredIntegrations(tenantId: string): Promise<StoredIntegrations | null> {
+  const res = await authedFetch(
+    `/api/settings/integrations?tenant_id=${encodeURIComponent(tenantId)}`,
+  ).catch(() => null);
+  const data = res?.ok ? await res.json().catch(() => null) : null;
+  return data?.ok ? (data.integrations as StoredIntegrations) : null;
+}
 
 export default function IntegrationsEditor({
   tenantId,
@@ -45,35 +54,45 @@ export default function IntegrationsEditor({
   );
 
   const [configs, setConfigs] = useState<ConfigState>({});
+  // Gespeicherte Geheimfelder: Der Server meldet nur "ist gesetzt", nie den Wert.
+  const [secretsSet, setSecretsSet] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
 
+  const applyStored = useCallback((stored: StoredIntegrations | null) => {
+    if (!stored) {
+      setLoadError(true);
+      setLoading(false);
+      return;
+    }
+    const initial: ConfigState = {};
+    const secrets: Record<string, string[]> = {};
+    for (const adapter of adapters) {
+      initial[adapter.id] = {};
+      for (const field of adapter.fields) {
+        initial[adapter.id][field.key] = stored[adapter.id]?.values[field.key] ?? "";
+      }
+      secrets[adapter.id] = stored[adapter.id]?.secretsSet ?? [];
+    }
+    setConfigs(initial);
+    setSecretsSet(secrets);
+    setLoadError(false);
+    setLoading(false);
+  }, [adapters]);
+
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      const { data: rows } = await supabase
-        .from("tenant_integrations")
-        .select("integration, config")
-        .eq("tenant_id", tenantId);
-      if (cancelled) return;
-
-      const initial: ConfigState = {};
-      for (const adapter of adapters) {
-        const row = rows?.find((r) => r.integration === adapter.id);
-        const cfg = (row?.config ?? {}) as Record<string, unknown>;
-        initial[adapter.id] = {};
-        for (const field of adapter.fields) {
-          const v = cfg[field.key];
-          initial[adapter.id][field.key] = typeof v === "string" ? v : "";
-        }
-      }
-      setConfigs(initial);
-      setLoading(false);
-    }
-    load();
+    fetchStoredIntegrations(tenantId).then((stored) => {
+      if (!cancelled) applyStored(stored);
+    });
     return () => { cancelled = true; };
-  }, [tenantId, adapters]);
+  }, [tenantId, applyStored]);
+
+  async function load() {
+    applyStored(await fetchStoredIntegrations(tenantId));
+  }
 
   function setField(integration: string, key: string, value: string) {
     setConfigs((prev) => ({
@@ -82,38 +101,63 @@ export default function IntegrationsEditor({
     }));
   }
 
-  // Aktiv = alle Felder der Integration ausgefüllt.
+  function isSecretSet(adapterId: string, key: string) {
+    return (secretsSet[adapterId] ?? []).includes(key);
+  }
+
+  // Aktiv = alle Felder ausgefüllt bzw. (bei Geheimfeldern) bereits gespeichert.
   function isActive(adapter: IntegrationAdapter) {
     const cfg = configs[adapter.id] ?? {};
-    return adapter.fields.every((f) => (cfg[f.key] ?? "").trim().length > 0);
+    return adapter.fields.every(
+      (f) => (cfg[f.key] ?? "").trim().length > 0 || isSecretSet(adapter.id, f.key),
+    );
+  }
+
+  async function postIntegrations(integrations: unknown[]) {
+    const res = await authedFetch("/api/settings/integrations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenant_id: tenantId, integrations }),
+    });
+    return res.json().catch(() => ({ ok: false }));
+  }
+
+  function showSaveResult(data: { ok?: boolean; error?: string; results?: Record<string, { ok: boolean; error?: string }> }, okText: string) {
+    if (data.ok) {
+      setSaveMsg(okText);
+    } else {
+      const failed = data?.results
+        ? Object.entries(data.results).find(([, r]) => !r.ok)
+        : null;
+      setSaveMsg(
+        failed
+          ? `Fehler bei ${failed[0]}: ${failed[1].error ?? "unbekannt"}`
+          : `Fehler: ${data.error ?? "unbekannt"}`,
+      );
+    }
+    setTimeout(() => setSaveMsg(""), 4000);
+  }
+
+  async function handleRemove(adapter: IntegrationAdapter) {
+    setSaving(true);
+    setSaveMsg("");
+    const data = await postIntegrations([{ integration: adapter.id, remove: true }]);
+    setSaving(false);
+    if (data.ok) await load();
+    showSaveResult(data, `${adapter.label} entfernt.`);
   }
 
   async function handleSave() {
     setSaving(true);
     setSaveMsg("");
-
-    const payload = adapters.map((a) => ({ integration: a.id, config: configs[a.id] ?? {} }));
-    const res = await authedFetch("/api/settings/integrations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tenant_id: tenantId, integrations: payload }),
-    });
-    const data = await res.json();
+    const data = await postIntegrations(
+      adapters.map((a) => ({ integration: a.id, config: configs[a.id] ?? {} })),
+    );
     setSaving(false);
-
-    if (data.ok) {
-      setSaveMsg("Einstellungen gespeichert!");
-    } else {
-      const failed = data?.results
-        ? Object.entries(data.results).find(([, r]) => !(r as { ok: boolean }).ok)
-        : null;
-      setSaveMsg(
-        failed
-          ? `Fehler bei ${failed[0]}: ${(failed[1] as { error?: string }).error ?? "unbekannt"}`
-          : `Fehler: ${data.error ?? "unbekannt"}`,
-      );
-    }
-    setTimeout(() => setSaveMsg(""), 4000);
+    // Neu laden: Eingegebene Tokens verschwinden aus dem Formular und
+    // erscheinen als "gespeichert".
+    if (data.ok) await load();
+    showSaveResult(data, "Einstellungen gespeichert!");
   }
 
   // Farb-Auflösung: Dark-Tokens falls vorhanden, sonst heller Default.
@@ -158,6 +202,14 @@ export default function IntegrationsEditor({
     return <p style={{ color: c.textMuted, fontSize: "13px" }}>Integrationen werden geladen...</p>;
   }
 
+  if (loadError) {
+    return (
+      <p style={{ color: c.errorColor, fontSize: "13px" }}>
+        Integrationen konnten nicht geladen werden. Bitte Seite neu laden.
+      </p>
+    );
+  }
+
   if (adapters.length === 0) {
     return (
       <div style={{ ...sectionStyle, color: c.textMuted, fontSize: "13px" }}>
@@ -179,8 +231,18 @@ export default function IntegrationsEditor({
               <p style={{ fontSize: "11px", color: c.textMuted }}>{adapter.description}</p>
             </div>
             {isActive(adapter) && (
-              <span style={{ marginLeft: "auto", fontSize: "10px", padding: "2px 8px", borderRadius: "20px", background: c.activeBg, color: c.activeColor, fontWeight: 500 }}>
-                Aktiv
+              <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "20px", background: c.activeBg, color: c.activeColor, fontWeight: 500 }}>
+                  Aktiv
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleRemove(adapter)}
+                  disabled={saving}
+                  style={{ background: "none", border: "none", padding: 0, fontSize: "11px", color: c.textMuted, cursor: "pointer", textDecoration: "underline" }}
+                >
+                  Entfernen
+                </button>
               </span>
             )}
           </div>
@@ -194,7 +256,12 @@ export default function IntegrationsEditor({
                 <input
                   value={configs[adapter.id]?.[field.key] ?? ""}
                   onChange={(e) => setField(adapter.id, field.key, e.target.value)}
-                  placeholder={field.placeholder}
+                  placeholder={
+                    field.secret && isSecretSet(adapter.id, field.key)
+                      ? "Gespeichert – zum Ändern neu eingeben"
+                      : field.placeholder
+                  }
+                  autoComplete="off"
                   type={field.secret ? "password" : "text"}
                   style={inputStyle}
                   onFocus={(e) => e.currentTarget.style.borderColor = theme.focus}

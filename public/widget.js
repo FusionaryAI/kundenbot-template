@@ -1,7 +1,7 @@
 (function () {
   var script = document.currentScript;
   var slug = script?.dataset?.slug;
-  var origin = script?.dataset?.origin || window.location.origin;
+  var origin = (script?.dataset?.origin || window.location.origin).replace(/\/$/, "");
   if (!slug) { console.warn("widget: missing data-slug"); return; }
 
   var style = document.createElement("style");
@@ -15,29 +15,42 @@
   var wrap = document.createElement("div");
   wrap.className = "pa-bubble";
   var btn = document.createElement("button");
+  btn.type = "button";
   btn.className = "pa-btn";
   // KI-VO Art. 50 Abs. 5: Der Hinweis auf den KI-Charakter muss auch
   // barrierefrei zugänglich sein — Screenreader-Nutzer erfahren ihn hier
   // bereits vor dem Öffnen des Chats.
-  btn.setAttribute("aria-label","Chat mit KI-Assistent öffnen");
+  btn.setAttribute("aria-label", "Chat mit KI-Assistent öffnen");
+  btn.setAttribute("aria-expanded", "false");
   btn.textContent = "💬";
   wrap.appendChild(btn);
   document.body.appendChild(wrap);
 
-  var frame = document.createElement("iframe");
-  frame.className = "pa-panel";
-  frame.src = origin.replace(/\/$/,"") + "/embed/" + encodeURIComponent(slug);
-  frame.allow = "clipboard-read; clipboard-write";
-  frame.style.background = "transparent";
-  document.body.appendChild(frame);
+  // Datenschutz (DSGVO, § 25 TDDDG): Das Chat-Fenster wird erst nach dem Klick
+  // geladen. Vorher baut die Seite keine Verbindung zum Chat-Server auf — außer
+  // für dieses Skript selbst, wenn es nicht von der Kundendomain ausgeliefert wird.
+  var frame = null;
+  function createFrame() {
+    frame = document.createElement("iframe");
+    frame.className = "pa-panel";
+    frame.title = "Chat mit KI-Assistent";
+    frame.src = origin + "/embed/" + encodeURIComponent(slug);
+    frame.allow = "clipboard-read; clipboard-write";
+    frame.style.background = "transparent";
+    document.body.appendChild(frame);
+  }
 
   var open = false;
-  btn.onclick = function(){
+  btn.onclick = function () {
+    if (!frame) createFrame();
     open = !open;
     frame.style.display = open ? "block" : "none";
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
   };
 
-  window.addEventListener("message", function(ev){
+  window.addEventListener("message", function (ev) {
+    // Nur Nachrichten des eigenen Chat-Fensters auswerten.
+    if (!frame || ev.source !== frame.contentWindow || ev.origin !== origin) return;
     var data = ev.data || {};
     if (data.type === "__widget_height__") {
       var h = Math.min(640, Math.max(420, data.height || 500));

@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
+import { withAiNotice } from "@/lib/ai-notice";
 
 type Message = { role: "user" | "assistant"; text: string };
 
@@ -38,8 +39,9 @@ export default function DemoPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   // Begrüßungsnachricht (nur UI, kein API)
-  const welcomeText =
-    "Hallo! Ich bin der digitale Assistent dieser Demo. Stellen Sie mir einfach eine Frage – ich helfe Ihnen sofort weiter.";
+  const welcomeText = withAiNotice(
+    "Stellen Sie mir einfach eine Frage – ich helfe Ihnen sofort weiter.",
+  );
 
   // einmalige Initial-Nachricht
   useEffect(() => {

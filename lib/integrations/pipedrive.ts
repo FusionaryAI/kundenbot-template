@@ -20,11 +20,13 @@ export const pipedriveAdapter: IntegrationAdapter<Config> = {
 
   async onLead(lead: LeadPayload, config: Config) {
     const baseUrl = `https://api.pipedrive.com/v1`;
+    // Token im Header statt als ?api_token= — URLs landen in Logs und Traces.
+    const headers = { "Content-Type": "application/json", "x-api-token": config.api_key };
 
     // 1) Person anlegen
-    const personRes = await fetch(`${baseUrl}/persons?api_token=${config.api_key}`, {
+    const personRes = await fetch(`${baseUrl}/persons`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         name: lead.name ?? "Unbekannt",
         email: lead.email ? [{ value: lead.email, primary: true }] : undefined,
@@ -36,9 +38,9 @@ export const pipedriveAdapter: IntegrationAdapter<Config> = {
     const personId = personData?.data?.id;
 
     // 2) Lead anlegen
-    const leadRes = await fetch(`${baseUrl}/leads?api_token=${config.api_key}`, {
+    const leadRes = await fetch(`${baseUrl}/leads`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         title: `${lead.name ?? "Neuer Lead"} – ${
           lead.type === "appointment" ? "Terminanfrage"
