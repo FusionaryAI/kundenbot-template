@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supaAdmin } from "@/lib/db";
+import { withAiNotice } from "@/lib/ai-notice";
+import { checkRateLimit, RATE_LIMITS, tooManyRequests } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  const limit = await checkRateLimit(supaAdmin, req.headers, RATE_LIMITS.widget);
+  if (limit.limited) return tooManyRequests(limit.retryAfterSeconds);
+
   const { slug } = await params;
 
   const { data: tenant, error: tenantError } = await supaAdmin
@@ -28,6 +33,7 @@ export async function GET(
   return NextResponse.json({
     ok: true,
     tenant_name: tenant.name,
-    welcome_message: settings?.welcome_message?.trim() || "Hallo! Wie kann ich Ihnen helfen?",
+    // KI-Hinweis serverseitig erzwingen — der Kunde kann ihn nicht wegkonfigurieren.
+    welcome_message: withAiNotice(settings?.welcome_message),
   });
 }

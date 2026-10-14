@@ -1,8 +1,8 @@
-// deploy-test
 "use client";
 
 import { use, useCallback, useEffect, useRef, useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
+import { withAiNotice } from "@/lib/ai-notice";
 
 type Message = {
   role: "user" | "assistant";
@@ -101,23 +101,6 @@ const defaultQuickActions = [
 const PROACTIVE_DELAY_MS = 45_000;
 const PROACTIVE_TEXT =
   "Gibt es noch etwas, womit ich helfen kann? Falls Sie möchten, kann ich Ihre Anfrage auch direkt **ans Team weiterleiten**.";
-
-/**
- * KI-VO (EU AI Act) Art. 50 Abs. 1 — gilt seit 02.08.2026:
- * Nutzer müssen spätestens bei der ersten Interaktion klar erkennen, dass sie
- * mit einer KI sprechen. Der Chat-Header trägt den Hinweis dauerhaft; weil die
- * Begrüßung aber kundenseitig überschreibbar ist (welcome_message) und die erste
- * inhaltliche Botschaft darstellt, stellen wir den Hinweis hier zusätzlich sicher.
- * Nennt der Kunde den KI-Charakter bereits selbst, bleibt sein Text unverändert.
- */
-const AI_NOTICE = "Hier antwortet ein KI-Assistent.";
-const MENTIONS_AI = /\bKI\b|\bAI\b|künstliche[rn]?\s+Intelligenz|chatbot|\bbot\b/i;
-
-function withAiNotice(text?: string | null): string {
-  const t = (text ?? "").trim();
-  if (!t) return `${AI_NOTICE} Wie kann ich Ihnen helfen?`;
-  return MENTIONS_AI.test(t) ? t : `${AI_NOTICE} ${t}`;
-}
 
 export default function Embed({ params }: EmbedProps) {
   const { slug: slugSafe } = use(params);
@@ -225,10 +208,7 @@ export default function Embed({ params }: EmbedProps) {
     try {
       const origin = typeof window !== "undefined" ? window.location.origin : "";
       const apiUrl = `${origin}/api/chat`;
-      const debug = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("debug") : null;
-      const finalUrl = debug === "1" ? `${apiUrl}?debug=1` : apiUrl;
-
-      const res = await fetch(finalUrl, {
+      const res = await fetch(apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

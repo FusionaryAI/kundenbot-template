@@ -101,7 +101,7 @@ Als Migration ins Repo übernehmen.
 ## Papierkram (vor dem Kunden-Claim)
 
 - [ ] AVV mit IONOS abschließen, datierte PDF-Kopie ablegen
-- [ ] `docs/datenschutz-textbaustein.md`: OpenAI als Empfänger durch IONOS ersetzen,
+- [x] `docs/datenschutz-textbaustein.md`: OpenAI als Empfänger durch IONOS ersetzen,
       Drittlandtransfer für die KI-Verarbeitung streichen (Vercel/Supabase bleiben)
 - [ ] OpenAI-Key nach erfolgreicher Umstellung widerrufen, sobald nichts mehr darauf zugreift
 - [ ] Token-Ablaufdatum im Kalender eintragen (abgelaufenes Token = Bot antwortet nicht)

@@ -40,33 +40,55 @@ Assistenten.
 - Nutzungsstatistiken zur Konversation (Anzahl der Nachrichten, Zeitpunkt, ob eine
   Kontaktanfrage entstanden ist, sowie die erste Frage einer Konversation zur Erkennung
   unbeantworteter Themen)
-- Eine zufällig erzeugte Sitzungskennung, die nur für die Dauer Ihres Besuchs im Browser
-  gespeichert wird
+- Eine zufällig erzeugte Sitzungskennung, die erst mit Ihrer ersten Nachricht angelegt und
+  nur für die Dauer Ihres Besuchs im Browser gespeichert wird
+- Ihre IP-Adresse, soweit technisch für die Verbindung zum Chat-Server nötig (siehe unten)
 
-Eine Erfassung Ihrer IP-Adresse durch den Assistenten erfolgt nicht.
+**Laden des Chat-Fensters und IP-Adresse**
+Das Chat-Fenster wird erst geladen, wenn Sie auf das Chat-Symbol klicken. Erst dann wird
+eine Verbindung zum Server des Assistenten aufgebaut und dabei technisch bedingt Ihre
+IP-Adresse übermittelt. `[prüfen: Wird widget.js von der eigenen Domain ausgeliefert? Sonst
+lädt bereits das Skript für das Chat-Symbol vom Server des Assistenten — dann diesen Satz
+entsprechend anpassen, siehe docs/sicherheitsmassnahmen.md]`
+Zum Schutz vor Missbrauch (Begrenzung der Anfragen pro Zeitraum) bildet der Assistent aus
+Ihrer IP-Adresse einen mit einem geheimen Schlüssel verschlüsselten Prüfwert (HMAC) und
+speichert diesen höchstens eine Stunde. Die IP-Adresse selbst wird vom Assistenten nicht
+gespeichert.
 
 **Rechtsgrundlage**
 Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an einer effizienten
 Anfragebeantwortung und der Verbesserung unseres Angebots). Übermitteln Sie uns über den
 Assistenten eine Kontaktanfrage, erfolgt die Verarbeitung dieser Angaben auf Grundlage von
-Art. 6 Abs. 1 lit. b DSGVO (Durchführung vorvertraglicher Maßnahmen).
+Art. 6 Abs. 1 lit. b DSGVO (Durchführung vorvertraglicher Maßnahmen). Die Begrenzung der
+Anfragen beruht auf Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Sicherheit
+und Verfügbarkeit des Dienstes).
 
 **Empfänger**
-- **OpenAI Ireland Ltd. / OpenAI, L.L.C.** — Erzeugung der Antworten. Ihre Eingaben werden
-  zur Beantwortung an die Schnittstelle von OpenAI übermittelt (eingesetzte Modelle:
-  GPT-4o mini sowie ein Modell zur Textähnlichkeitssuche). Eine Nutzung Ihrer Eingaben zum
-  Training der Modelle findet nach den Zusagen des Anbieters für API-Kunden nicht statt.
-  `[prüfen: aktuelle Vertragsentität und Data-Processing-Addendum]`
-- **Supabase** — Datenbank- und Hosting-Dienst für die gespeicherten Angaben
-  `[prüfen: Speicherregion des Projekts, EU-Region empfohlen]`
-- **Vercel Inc.** — Betrieb der technischen Infrastruktur des Assistenten
+- **IONOS Cloud GmbH, Elgendorfer Straße 57, 56410 Montabaur** — Erzeugung der Antworten
+  (KI-Modelle: Mistral Small 24B für die Antworten, BGE-M3 für die Textähnlichkeitssuche).
+  Die Verarbeitung erfolgt ausschließlich in Rechenzentren in Deutschland. Ihre Eingaben
+  werden nicht zum Training der Modelle verwendet.
+- **Supabase Pte. Ltd. (Singapur)** — Datenbank für die gespeicherten Angaben. Speicherort:
+  Rechenzentrum in der EU (AWS-Region eu-west-1, Irland).
+  `[prüfen: Region im Supabase-Dashboard bestätigen (Project Settings → General); am
+  14.10.2026 technisch über die Datenbankadresse ermittelt. Vertragsentität laut DPA]`
+- **Vercel Inc. (USA)** — Betrieb der technischen Infrastruktur des Assistenten. Die
+  Server-Funktionen laufen in Frankfurt am Main (Region fra1).
+- **Resend (Plus Five Five, Inc., USA)** — Versand der E-Mail, mit der wir über Ihre
+  Kontaktanfrage informiert werden `[prüfen: Vertragsentität und DPA]`
+- `[nur falls aktiviert]` **Slack / HubSpot / Pipedrive** — Weiterleitung Ihrer
+  Kontaktanfrage in unser Team-Postfach bzw. CRM. Diese Dienste setzen wir mit eigenem
+  Vertrag ein. `[prüfen: Welche Integration ist für dieses Projekt aktiv? Anbieter, Sitz
+  und Transfergrundlage ergänzen — nicht aktive Zeilen streichen]`
 - **Fusionary AI, Inhaber Noah Neumeier, Donaupark 19, 93309 Kelheim** — technischer
   Betrieb und Wartung als Auftragsverarbeiter auf Grundlage eines Vertrags nach
   Art. 28 DSGVO
 
 **Übermittlung in Drittländer**
-Bei der Verarbeitung durch die genannten Dienstleister kann es zu einer Übermittlung
-personenbezogener Daten in die USA kommen. Die Übermittlung erfolgt auf Grundlage von
+Die KI-Verarbeitung findet ausschließlich in Deutschland statt. Bei Datenbank, Hosting
+und E-Mail-Versand kann es zu einer Übermittlung personenbezogener Daten in Drittländer
+(USA, Singapur — etwa bei Support- und Wartungszugriffen) kommen, auch wenn die Daten in
+der EU gespeichert und verarbeitet werden. Die Übermittlung erfolgt auf Grundlage von
 Standardvertragsklauseln der EU-Kommission gemäß Art. 46 Abs. 2 lit. c DSGVO sowie,
 soweit die Anbieter zertifiziert sind, auf Grundlage des EU-US Data Privacy Framework
 (Angemessenheitsbeschluss nach Art. 45 DSGVO).
@@ -76,7 +98,8 @@ soweit die Anbieter zertifiziert sind, auf Grundlage des EU-US Data Privacy Fram
 Kontaktanfragen speichern wir, bis Ihr Anliegen abschließend bearbeitet ist, längstens
 jedoch **6 Monate**; gesetzliche Aufbewahrungsfristen bleiben unberührt.
 Nutzungsstatistiken und gespeicherte Fragen werden nach **12 Monaten** gelöscht. Der
-Verlauf Ihrer Konversation wird nicht dauerhaft gespeichert. Die Löschung erfolgt
+Verlauf Ihrer Konversation wird nicht dauerhaft gespeichert. Prüfwerte zur
+Anfragebegrenzung werden nach spätestens einer Stunde gelöscht. Die Löschung erfolgt
 automatisiert durch eine täglich laufende Routine.
 
 > **Verifiziert am 16.08.2026** für das Referenzprojekt: Cron-Job `purge-expired-data`
@@ -107,7 +130,9 @@ Gesundheitsdaten) und keine Zugangsdaten ein.
 
 ## Übergabe-Checkliste
 
-- [ ] `[prüfen]`-Marker projektspezifisch gefüllt (Speicherregion, Fristen, DPF-Status)
+- [ ] `[prüfen]`-Marker projektspezifisch gefüllt (Speicherregion, Fristen, DPF-Status,
+      aktive Integrationen, Auslieferung von widget.js)
+- [ ] Sicherheits-Migration und Env-Variablen eingerichtet → `docs/sicherheitsmassnahmen.md`
 - [ ] Auftragsverarbeitungsvertrag (Art. 28 DSGVO) mit dem Kunden geschlossen → @DATENSCHUTZ.md
 - [ ] TIA für den Drittlandtransfer beigelegt → @DATENSCHUTZ.md
 - [ ] Kunde auf seine Betreiberpflichten nach KI-VO hingewiesen → @KI-VO.md

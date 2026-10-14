@@ -7,9 +7,7 @@ import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
 // Dynamische Imports erst nach dotenv; Node (strip-types) verlangt die .ts-Endung.
-// @ts-expect-error TS5097 — Endung ist für die direkte Ausführung mit Node nötig
 const { supaAdmin } = await import("../lib/db.ts");
-// @ts-expect-error TS5097 — Endung ist für die direkte Ausführung mit Node nötig
 const { llm, embeddingModel } = await import("../lib/llm.ts");
 
 const TARGET_DIMENSIONS = 1024;

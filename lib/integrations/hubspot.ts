@@ -56,7 +56,8 @@ export const hubspotAdapter: IntegrationAdapter<Config> = {
       return { ok: true, updated: true };
     }
 
-    if (!res.ok) throw new Error(`HubSpot error: ${res.status} – ${JSON.stringify(data)}`);
+    // Nur den Status melden: Die Antwort kann Kontaktdaten des Leads enthalten.
+    if (!res.ok) throw new Error(`HubSpot error: ${res.status}`);
     return { ok: true, contact_id: data.id };
   },
 };
