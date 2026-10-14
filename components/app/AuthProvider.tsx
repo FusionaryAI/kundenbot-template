@@ -69,6 +69,17 @@ export function AuthProvider({
     };
   }, [router, requireSuperAdmin]);
 
+  // Bis Anmeldung (und ggf. Admin-Rolle) bestätigt sind, wird nichts aus dem
+  // Bereich gerendert — auch nicht der Rahmen. Ohne Anmeldung bleibt es bei
+  // diesem Hinweis, bis die Weiterleitung zur Login-Seite greift.
+  if (state.loading) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-paper text-sm text-ink3" aria-busy="true">
+        Anmeldung wird geprüft …
+      </div>
+    );
+  }
+
   return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;
 }
 
