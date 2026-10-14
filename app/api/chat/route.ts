@@ -6,17 +6,12 @@ import { resolveVertical } from "@/lib/verticals/registry";
 import { guardrailReply } from "@/lib/verticals/guardrail-reply";
 import { integrationsForVertical } from "@/lib/integrations/registry";
 import { loadIntegrations } from "@/lib/integrations/store";
-import { llm, chatModel, embeddingModel, parseJsonReply, ragThresholds } from "@/lib/llm";
+import { llm, chatModel, parseJsonReply } from "@/lib/llm";
+import { assessMatches, generateKbAnswer, ragSearch, type RagMatch } from "@/lib/rag";
 import { createLead, LeadError } from "@/lib/leads";
 import { checkRateLimit, RATE_LIMITS, tooManyRequests } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
-
-type RagMatch = {
-  id: string;
-  content: string;
-  similarity: number;
-};
 
 type TenantSettings = {
   welcome_message: string;
@@ -57,14 +52,6 @@ type HandoffState = {
 };
 
 // RAG Schwellenwerte (erhöht für schärfere Antworten)
-const {
-  min: MIN_SIMILARITY,
-  goodEnough: KB_GOOD_ENOUGH,
-  high: HIGH_CONF_SIM,
-  highAlt: HIGH_CONF_ALT_SIM,
-  mid: MID_CONF_SIM,
-  margin: MARGIN_CONF,
-} = ragThresholds();
 
 // --------------------
 // Helpers
@@ -203,68 +190,6 @@ async function getBookingLink(
 function appendBookingHint(text: string, link: string | null): string {
   if (!link) return text;
   return `${text}\n\nSie können auch direkt online einen Termin buchen: ${link}`;
-}
-
-// --------------------
-// RAG
-// --------------------
-
-async function ragSearch(tenantId: string, query: string, k = 4): Promise<RagMatch[]> {
-  const emb = await llm().embeddings.create({
-    model: embeddingModel(),
-    input: query,
-  });
-  const queryEmbedding = emb.data[0].embedding;
-  const { data, error } = await supaAdmin.rpc("match_embeddings", {
-    query_embedding: queryEmbedding,
-    match_count: k,
-    p_tenant_id: tenantId,
-  });
-  if (error) {
-    console.error("match_embeddings error:", error);
-    throw new Error("Vector search failed");
-  }
-  return (data ?? []) as RagMatch[];
-}
-
-// --------------------
-// System Prompt mit Datum
-// --------------------
-
-function systemPrompt(companyName: string, fallbackMessage: string, safetyHint: string) {
-  const now = new Date();
-  const dayNames = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
-  const day = dayNames[now.getDay()];
-  const date = now.toLocaleDateString("de-DE", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    timeZone: "Europe/Berlin",
-  });
-  const time = now.toLocaleTimeString("de-DE", {
-    hour: "2-digit", minute: "2-digit",
-    timeZone: "Europe/Berlin",
-  });
-
-  return `Rolle:
-Du bist ein professioneller digitaler Assistent des Unternehmens "${companyName}".
-
-AKTUELLES DATUM UND UHRZEIT:
-- Heute ist ${day}, der ${date}
-- Aktuelle Uhrzeit: ${time} Uhr (Europa/Berlin)
-- Nutze diese Information wenn Fragen wie "heute", "jetzt", "gerade", "aktuell" gestellt werden.
-
-REGELN:
-- Antworte klar, höflich und direkt auf die Frage.
-- Keine frei erfundenen Informationen.
-- Wenn etwas nicht bekannt ist oder im Unternehmenswissen nicht vorkommt: Nutze sinngemäß: "${fallbackMessage}".
-- Verwende kurze Absätze.
-- Listen nur, wenn sinnvoll (max. 5–7 Punkte).
-- Keine Begrüßung, kein Smalltalk, keine Abschlussfloskeln.
-
-SICHERHEIT / KOMPLIANCE:
-${safetyHint}
-
-ZIEL:
-Hilf der anfragenden Person schnell und zuverlässig mit Informationen des Unternehmens weiter.`;
 }
 
 // --------------------
@@ -1241,36 +1166,17 @@ export async function POST(req: NextRequest) {
       matches = [];
     }
 
-    const scored = (matches ?? []).filter(
-      (m) => typeof m.similarity === "number" && !!m.content && m.content.trim().length > 0,
-    );
-    const sorted = scored.sort((a, b) => b.similarity - a.similarity);
-    const above = sorted.filter((m) => m.similarity >= MIN_SIMILARITY).sort((a, b) => b.similarity - a.similarity);
-    const top = (above.length > 0 ? above : sorted).slice(0, 4);
-    const kbBullets = top.map((m) => `- ${m.content}`).join("\n");
-    const best = sorted[0];
-    analytics.bestSimilarity = best && typeof best.similarity === "number" ? best.similarity : null;
-    const second = sorted[1];
-    const margin =
-      best && second &&
-      typeof best.similarity === "number" && typeof second.similarity === "number"
-        ? best.similarity - second.similarity
-        : 0;
-
-    const HIGH_CONF =
-      !!best && typeof best.similarity === "number" &&
-      (best.similarity >= HIGH_CONF_SIM || (best.similarity >= HIGH_CONF_ALT_SIM && margin >= MARGIN_CONF));
-
-    const MID_CONF =
-      !!best && typeof best.similarity === "number" &&
-      best.similarity >= MID_CONF_SIM && !HIGH_CONF;
+    const rag = assessMatches(matches);
+    const { sorted, kbBullets, best } = rag;
+    analytics.bestSimilarity = best ? best.similarity : null;
+    const HIGH_CONF = rag.highConf;
+    const MID_CONF = rag.midConf;
 
     // --- 3.5) Off-Topic-Deflektor: wenn RAG schwach ist, pruefen ob die Frage
     // ueberhaupt zum Fachgebiet gehoert. Falls nicht: freundlich abspeisen und
     // zurueck zum Thema lenken (statt Handoff anzubieten / in Fallback zu laufen).
     const ragWeakForDeflect =
-      sorted.length === 0 ||
-      (best && typeof best.similarity === "number" && best.similarity < KB_GOOD_ENOUGH);
+      sorted.length === 0 || !rag.goodEnough;
     if (ragWeakForDeflect && !handoff.completed) {
       try {
         const deflect = await detectOffTopicAndDeflect({
@@ -1317,7 +1223,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (best && typeof best.similarity === "number" && best.similarity < KB_GOOD_ENOUGH && leadEnabled && !handoff.completed && !offeredRecently) {
+    if (best && !rag.goodEnough && leadEnabled && !handoff.completed && !offeredRecently) {
       handoff = {
         active: false, completed: false, stage: "offered", lead_type: "contact",
         offered_at_ts: now, message: message.trim(),
@@ -1397,30 +1303,21 @@ export async function POST(req: NextRequest) {
     // --- 5) HIGH_CONF: direkt aus KB antworten mit Chat-Verlauf ---
     const history = chatHistory;
 
-    const system = systemPrompt(tenant.name, settings.fallback_message, safetyHint);
     const pageHint = buildPageHint(handoff.page_context ?? context ?? null);
 
-    const completion = await llm().chat.completions.create({
-      model: chatModel(),
-      temperature: 0.35,
-      messages: [
-        { role: "system", content: system },
-        {
-          role: "user",
-          content: `Verfügbares Unternehmenswissen:
-${kbBullets}
-${pageHint}
-WICHTIG:
-${profile.kbAnswerInstruction}`,
-        },
-        { role: "assistant", content: "Verstanden. Ich beantworte Fragen ausschließlich auf Basis dieser Informationen." },
-        ...history,
-        { role: "user", content: message },
-      ],
+    const answer = await generateKbAnswer({
+      companyName: tenant.name,
+      fallbackMessage: settings.fallback_message,
+      safetyHint,
+      kbAnswerInstruction: profile.kbAnswerInstruction,
+      kbBullets,
+      pageHint,
+      history,
+      message,
     });
 
-    let text = completion.choices[0]?.message?.content ?? settings.fallback_message;
-    if (!completion.choices[0]?.message?.content) analytics.isFallback = true;
+    let text = answer ?? settings.fallback_message;
+    if (!answer) analytics.isFallback = true;
 
     if (profile.adviceGuardrail) {
       const guard = profile.adviceGuardrail;

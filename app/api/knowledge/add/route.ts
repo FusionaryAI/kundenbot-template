@@ -1,77 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supaAdmin } from "@/lib/db";
-import { llm, embeddingModel } from "@/lib/llm";
+import { z } from "zod";
 import { requireTenantAccess } from "@/lib/auth-server";
+import { createKnowledge } from "@/lib/knowledge";
 
 export const runtime = "nodejs";
 
+const bodySchema = z.object({
+  tenant_id: z.string().uuid(),
+  title: z.string().trim().max(300).nullish(),
+  content: z.string().trim().min(1).max(8000),
+});
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { tenant_id, title, content } = body;
-
-    if (!tenant_id || !content) {
-      return NextResponse.json(
-        { ok: false, error: "tenant_id und content sind erforderlich" },
-        { status: 400 }
-      );
+    const parsed = bodySchema.safeParse(await req.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: "Bitte eine Antwort eingeben (max. 8.000 Zeichen)." }, { status: 400 });
     }
+    const { tenant_id, title, content } = parsed.data;
 
-    {
-      const gate = await requireTenantAccess(req, tenant_id);
-      if ("error" in gate) return gate.error;
-    }
+    const gate = await requireTenantAccess(req, tenant_id);
+    if ("error" in gate) return gate.error;
 
-    // 1. Knowledge Item speichern
-    const { data: item, error: itemError } = await supaAdmin
-      .from("knowledge_items")
-      .insert({
-        tenant_id,
-        title: title ?? null,
-        content,
-        source: "dashboard",
-      })
-      .select("id")
-      .single();
-
-    if (itemError || !item) {
-      return NextResponse.json(
-        { ok: false, error: itemError?.message ?? "Fehler beim Speichern" },
-        { status: 500 }
-      );
-    }
-
-    // 2. Embedding generieren
-    const embeddingResponse = await llm().embeddings.create({
-      model: embeddingModel(),
-      input: content,
-    });
-
-    const embedding = embeddingResponse.data[0].embedding;
-
-    // 3. Embedding speichern – ohne metadata Spalte
-    const { error: embError } = await supaAdmin
-      .from("embeddings")
-      .insert({
-        tenant_id,
-        content,
-        embedding,
-      });
-
-    if (embError) {
-      console.error("Embedding insert error:", embError);
-      return NextResponse.json(
-        { ok: false, error: "Embedding konnte nicht gespeichert werden: " + embError.message },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ ok: true, id: item.id });
-  } catch (e: any) {
+    const id = await createKnowledge(tenant_id, title || null, content);
+    return NextResponse.json({ ok: true, id });
+  } catch (e) {
     console.error("/api/knowledge/add error:", e);
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? "server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Speichern fehlgeschlagen" }, { status: 500 });
   }
 }

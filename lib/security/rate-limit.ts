@@ -24,6 +24,8 @@ export const RATE_LIMITS = {
   leads: { scope: "leads", limit: 5, windowSeconds: 600 },
   // Begrüßungstext beim Öffnen des Chats.
   widget: { scope: "widget", limit: 30, windowSeconds: 60 },
+  // Wissenstest im Dashboard: angemeldet, aber jeder Aufruf kostet LLM-Tokens.
+  knowledgeTest: { scope: "kb-test", limit: 20, windowSeconds: 60 },
 } satisfies Record<string, RateLimitRule>;
 
 /**
