@@ -5,8 +5,11 @@ import type { VerticalProfile } from "./types";
 
 const MEDICAL_SAFETY_FALLBACK =
   "Ich kann keine medizinische Beratung, Diagnose oder Behandlung durchführen. " +
-  "Für eine medizinische Einschätzung wenden Sie sich bitte direkt an die Praxis oder den Notdienst. " +
-  "Gern nenne ich Ihnen Praxisinfos (Öffnungszeiten, Kontakt, Leistungen laut Website).";
+  "Bitte besprechen Sie Ihr Anliegen direkt mit der Praxis.";
+
+const MEDICAL_EMERGENCY_HINT =
+  "Außerhalb der Sprechzeiten erreichen Sie den ärztlichen Bereitschaftsdienst unter **116 117**, " +
+  "in lebensbedrohlichen Notfällen den Rettungsdienst unter **112**.";
 
 // Erkennt, ob eine Frage nach medizinischer Beratung klingt (Symptome,
 // Behandlung, Medikation, Diagnose) — vs. organisatorischer Logistik, die aus
@@ -90,6 +93,7 @@ export const praxisProfile: VerticalProfile = {
   adviceGuardrail: {
     matches: looksLikeMedicalAdviceQuestion,
     safetyFallback: MEDICAL_SAFETY_FALLBACK,
+    emergencyHint: MEDICAL_EMERGENCY_HINT,
     handoffPrompt:
       "Soll ich Ihre Anfrage an das Team weiterleiten und eine Terminanfrage aufnehmen?",
     handoffLeadType: "appointment",

@@ -14,6 +14,11 @@ export type AdviceGuardrail = {
   matches: (text: string) => boolean;
   /** Antworttext, wenn der Guardrail greift. */
   safetyFallback: string;
+  /**
+   * Hinweis auf Notfallnummern o.Ä., steht nach den Kontaktdaten des Tenants
+   * (siehe guardrailReply).
+   */
+  emergencyHint?: string;
   /** Zusatzfrage, die nach dem Safety-Hinweis ein Handoff anbietet. */
   handoffPrompt: string;
   /** Lead-Typ, mit dem das angebotene Handoff startet. */

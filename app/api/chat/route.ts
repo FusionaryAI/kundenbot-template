@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { supaAdmin } from "@/lib/db";
 import { recordConversationTurn, recordUnansweredQuestion } from "@/lib/analytics";
 import { resolveVertical } from "@/lib/verticals/registry";
+import { guardrailReply } from "@/lib/verticals/guardrail-reply";
 import { integrationsForVertical } from "@/lib/integrations/registry";
 import { loadIntegrations } from "@/lib/integrations/store";
 import { llm, chatModel, embeddingModel, parseJsonReply, ragThresholds } from "@/lib/llm";
@@ -23,6 +24,8 @@ type TenantSettings = {
   lead_enabled?: boolean | null;
   lead_email?: string | null;
   lead_auto_reply?: string | null;
+  public_contact_phone?: string | null;
+  public_hours?: string | null;
 };
 
 type LeadType = "contact" | "appointment" | "callback";
@@ -158,7 +161,7 @@ async function getTenantBySlug(slug: string) {
 async function getTenantSettings(tenantId: string): Promise<TenantSettings> {
   const { data, error } = await supaAdmin
     .from("tenant_settings")
-    .select("welcome_message, fallback_message, lead_enabled, lead_email, lead_auto_reply")
+    .select("welcome_message, fallback_message, lead_enabled, lead_email, lead_auto_reply, public_contact_phone, public_hours")
     .eq("tenant_id", tenantId)
     .single();
   if (error || !data) {
@@ -168,6 +171,8 @@ async function getTenantSettings(tenantId: string): Promise<TenantSettings> {
       lead_enabled: true,
       lead_email: null,
       lead_auto_reply: "Vielen Dank! Wir melden uns zeitnah.",
+      public_contact_phone: null,
+      public_hours: null,
     };
   }
   return data as TenantSettings;
@@ -863,7 +868,7 @@ export async function POST(req: NextRequest) {
       }
       analytics.isFallback = true;
       return respond({
-        text: guard.safetyFallback,
+        text: guardrailReply(guard, { phone: settings.public_contact_phone, hours: settings.public_hours }),
         welcome_message: settings.welcome_message,
           tenant_name: tenant.name,
         from_kb: false,
@@ -1421,7 +1426,7 @@ ${profile.kbAnswerInstruction}`,
       const guard = profile.adviceGuardrail;
       const t = text.toLowerCase();
       if (guard.unsafeClaims.some((k) => t.includes(k))) {
-        text = guard.safetyFallback;
+        text = guardrailReply(guard, { phone: settings.public_contact_phone, hours: settings.public_hours });
         analytics.isFallback = true;
       }
     }
