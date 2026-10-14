@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { clearBrowserSession } from "@/lib/session-guard";
 import { cn } from "@/lib/cn";
 import { Logo } from "@/components/ui/Logo";
 import { useAuth } from "./AuthProvider";
@@ -87,6 +88,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   async function logout() {
     await supabase.auth.signOut();
+    clearBrowserSession();
     router.replace("/login");
   }
 

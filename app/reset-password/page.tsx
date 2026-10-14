@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { startBrowserSession } from "@/lib/session-guard";
 import { AuthCard } from "@/components/app/AuthCard";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Field";
@@ -35,6 +36,7 @@ export default function ResetPasswordPage() {
     const { error } = await supabase.auth.updateUser({ password });
     setBusy(false);
     if (error) return setError("Das hat nicht geklappt. Bitte fordern Sie einen neuen Link an.");
+    startBrowserSession();
     setDone(true);
     setTimeout(() => router.push("/dashboard"), 1500);
   }

@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { clearBrowserSession, currentEndReason, touchActivity } from "@/lib/session-guard";
 
 export type Tenant = {
   id: string;
@@ -42,6 +43,15 @@ export function AuthProvider({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return router.replace("/login");
 
+      // Sitzungsregel: Browser geschlossen oder 60 Min. inaktiv → abmelden.
+      const reason = currentEndReason();
+      if (reason) {
+        await supabase.auth.signOut();
+        clearBrowserSession();
+        return router.replace(`/login?abgemeldet=${reason}`);
+      }
+      touchActivity();
+
       const { data: roleData } = await supabase
         .from("user_roles")
         .select("role, tenant_id")
@@ -68,6 +78,35 @@ export function AuthProvider({
       cancelled = true;
     };
   }, [router, requireSuperAdmin]);
+
+  // Während der Arbeit: Aktivität vermerken (gedrosselt) und minütlich prüfen,
+  // ob die Inaktivitätsfrist abgelaufen ist — auch wenn der Tab offen bleibt.
+  useEffect(() => {
+    if (state.loading) return;
+    let last = 0;
+    const onActivity = () => {
+      if (Date.now() - last < 30_000) return;
+      last = Date.now();
+      touchActivity();
+    };
+    const check = async () => {
+      const reason = currentEndReason();
+      if (!reason) return;
+      await supabase.auth.signOut();
+      clearBrowserSession();
+      router.replace(`/login?abgemeldet=${reason}`);
+    };
+    const events = ["pointerdown", "keydown", "scroll"] as const;
+    events.forEach((e) => window.addEventListener(e, onActivity, { passive: true }));
+    const onVisible = () => document.visibilityState === "visible" && check();
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = window.setInterval(check, 60_000);
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, onActivity));
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(timer);
+    };
+  }, [state.loading, router]);
 
   // Bis Anmeldung (und ggf. Admin-Rolle) bestätigt sind, wird nichts aus dem
   // Bereich gerendert — auch nicht der Rahmen. Ohne Anmeldung bleibt es bei

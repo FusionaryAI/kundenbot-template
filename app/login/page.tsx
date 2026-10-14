@@ -1,15 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { startBrowserSession } from "@/lib/session-guard";
 import { AuthCard } from "@/components/app/AuthCard";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Field";
 import { ErrorNote } from "@/components/ui/States";
 
-export default function LoginPage() {
+const ENDED: Record<string, string> = {
+  inaktiv: "Sie wurden nach 60 Minuten ohne Aktivität abgemeldet. Bitte melden Sie sich erneut an.",
+  browser: "Ihre Sitzung endet, wenn der Browser geschlossen wird. Bitte melden Sie sich erneut an.",
+};
+
+function LoginForm() {
   const router = useRouter();
+  const endedReason = useSearchParams().get("abgemeldet");
   const [mode, setMode] = useState<"login" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,6 +34,7 @@ export default function LoginPage() {
       setBusy(false);
       return;
     }
+    startBrowserSession();
     router.push("/dashboard");
   }
 
@@ -77,6 +85,11 @@ export default function LoginPage() {
 
   return (
     <AuthCard eyebrow="Kundenbereich" title="Anmelden" description="Ihr Assistent, Ihre Anfragen und was er für Sie bewirkt.">
+      {endedReason && ENDED[endedReason] && (
+        <p role="status" className="mb-6 rounded-element bg-paper2 px-4 py-3 text-sm text-ink2">
+          {ENDED[endedReason]}
+        </p>
+      )}
       <form onSubmit={login} className="flex flex-col gap-5">
         <Field label="E-Mail" htmlFor="email">
           <Input id="email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -107,5 +120,13 @@ export default function LoginPage() {
         Passwort vergessen?
       </button>
     </AuthCard>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }
