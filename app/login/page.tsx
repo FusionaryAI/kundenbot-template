@@ -12,6 +12,7 @@ import { ErrorNote } from "@/components/ui/States";
 const ENDED: Record<string, string> = {
   inaktiv: "Sie wurden nach 60 Minuten ohne Aktivität abgemeldet. Bitte melden Sie sich erneut an.",
   browser: "Ihre Sitzung endet, wenn der Browser geschlossen wird. Bitte melden Sie sich erneut an.",
+  abgelaufen: "Aus Sicherheitsgründen endet jede Sitzung spätestens 12 Stunden nach der Anmeldung. Bitte melden Sie sich erneut an.",
 };
 
 function LoginForm() {

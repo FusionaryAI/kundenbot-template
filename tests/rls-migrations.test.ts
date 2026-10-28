@@ -67,6 +67,29 @@ test("keine einzelne Migration gibt Kunden Schreibrechte auf tenant_settings (er
   }
 });
 
+test("RLS-Helfer lassen nur Sitzungen unter der Obergrenze zu (NV-8), in jeder Definition", () => {
+  assert.ok(/create or replace function public\.session_is_fresh\(\)/.test(sql), "session_is_fresh() fehlt");
+  assert.ok(/43200/.test(sql), "Obergrenze 12 h (43200 s) fehlt; muss MAX_SESSION_AGE_S in lib/session-age.ts entsprechen");
+  // Ältester amr-Zeitstempel = Anmeldung; max() ließe sich per MFA-Verify zurücksetzen.
+  const freshDefs = sql.match(/create or replace function public\.session_is_fresh\(\)[\s\S]*?\$\$;/g) ?? [];
+  for (const def of freshDefs) {
+    assert.ok(/min\(\(m ->> 'timestamp'\)::bigint\)/.test(def) && !/max\(/.test(def), "session_is_fresh muss min() nutzen");
+  }
+  for (const fn of ["current_tenant_id", "is_super_admin"]) {
+    const defs = sql.match(new RegExp(`create or replace function public\\.${fn}\\(\\)[\\s\\S]*?\\$\\$;`, "g")) ?? [];
+    assert.ok(defs.length > 0, `${fn} nicht definiert`);
+    for (const def of defs) assert.ok(/public\.session_is_fresh\(\)/.test(def), `${fn} ohne Alterscheck`);
+  }
+  // Der Alterscheck muss vor den Helfern stehen, die ihn aufrufen (pro Datei).
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql"))) {
+    const text = readFileSync(join(dir, f), "utf8").toLowerCase();
+    const use = text.indexOf("public.session_is_fresh()");
+    if (use === -1) continue;
+    const def = text.indexOf("create or replace function public.session_is_fresh()");
+    assert.ok(def !== -1 && def < use, `${f}: session_is_fresh() wird vor der Definition benutzt`);
+  }
+});
+
 test("user_roles und tenants sind für Browser-Rollen nicht beschreibbar", () => {
   // user_roles ist die einzige Quelle der super_admin-Autorität (lib/auth-server.ts).
   assert.ok(

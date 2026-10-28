@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supaAdmin } from "@/lib/db";
+import { authTimeFromToken, isSessionTooOld } from "@/lib/session-age";
 
 /**
  * Serverseitige Auth-Helfer für API-Routen.
@@ -29,6 +30,8 @@ export async function getAuthedUser(req: NextRequest): Promise<AuthedUser | null
 
   const { data, error } = await supaAdmin.auth.getUser(token);
   if (error || !data?.user) return null;
+  // Token ist jetzt verifiziert; Sitzungen über der Obergrenze ablehnen (NV-8).
+  if (isSessionTooOld(authTimeFromToken(token), Math.floor(Date.now() / 1000))) return null;
 
   const { data: roleRow } = await supaAdmin
     .from("user_roles")

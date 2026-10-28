@@ -32,7 +32,25 @@
 
 -- ---------------------------------------------------------------------------
 -- 1) Helper-Funktionen (SECURITY DEFINER → lesen user_roles ohne RLS-Rekursion)
+--    Gleicher Stand wie 20261028140000_session_max_age.sql (Sitzungs-Obergrenze
+--    12 h, NV-8), damit ein erneutes Ausführen dieser Datei sie nicht entfernt.
 -- ---------------------------------------------------------------------------
+create or replace function public.session_is_fresh()
+returns boolean
+language sql
+stable
+set search_path = public
+as $$
+  select coalesce(
+    (select min((m ->> 'timestamp')::bigint)
+       from jsonb_array_elements(
+              case when jsonb_typeof(auth.jwt() -> 'amr') = 'array' then auth.jwt() -> 'amr' else '[]'::jsonb end
+            ) m
+      where (m ->> 'timestamp') ~ '^[0-9]+$')
+      > extract(epoch from now())::bigint - 43200,
+    true)
+$$;
+
 create or replace function public.current_tenant_id()
 returns uuid
 language sql
@@ -42,7 +60,7 @@ set search_path = public
 as $$
   select tenant_id
   from public.user_roles
-  where user_id = auth.uid()
+  where user_id = auth.uid() and public.session_is_fresh()
   limit 1
 $$;
 
@@ -56,7 +74,7 @@ as $$
   select exists (
     select 1 from public.user_roles
     where user_id = auth.uid() and role = 'super_admin'
-  )
+  ) and public.session_is_fresh()
 $$;
 
 -- ---------------------------------------------------------------------------

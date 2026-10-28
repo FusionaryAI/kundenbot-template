@@ -1,5 +1,6 @@
 "use client";
 
+import { authTimeFromToken } from "@/lib/session-age";
 import { sessionEndReason, type SessionEndReason } from "@/lib/session-policy";
 
 // Browser-Seite der Sitzungsregel (lib/session-policy.ts).
@@ -48,6 +49,12 @@ export function clearBrowserSession() {
   }
 }
 
-export function currentEndReason(): SessionEndReason | null {
-  return sessionEndReason({ hasBrowserMarker: hasMarker(), lastActivity: readActivity(), now: Date.now() });
+/** accessToken: aktueller Supabase-Access-Token, für die Obergrenze ab Anmeldung. */
+export function currentEndReason(accessToken?: string | null): SessionEndReason | null {
+  return sessionEndReason({
+    hasBrowserMarker: hasMarker(),
+    lastActivity: readActivity(),
+    now: Date.now(),
+    authTimeSec: accessToken ? authTimeFromToken(accessToken) : null,
+  });
 }

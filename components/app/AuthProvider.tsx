@@ -43,8 +43,10 @@ export function AuthProvider({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return router.replace("/login");
 
-      // Sitzungsregel: Browser geschlossen oder 60 Min. inaktiv → abmelden.
-      const reason = currentEndReason();
+      // Sitzungsregel: Browser geschlossen, 60 Min. inaktiv oder Obergrenze
+      // ab Anmeldung überschritten → abmelden.
+      const { data: { session } } = await supabase.auth.getSession();
+      const reason = currentEndReason(session?.access_token);
       if (reason) {
         await supabase.auth.signOut();
         clearBrowserSession();
@@ -90,7 +92,8 @@ export function AuthProvider({
       touchActivity();
     };
     const check = async () => {
-      const reason = currentEndReason();
+      const { data: { session } } = await supabase.auth.getSession();
+      const reason = currentEndReason(session?.access_token);
       if (!reason) return;
       await supabase.auth.signOut();
       clearBrowserSession();

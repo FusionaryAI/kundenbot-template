@@ -45,6 +45,8 @@ jeweilige Projekt erledigt und geprüft ist.
    - `supabase/migrations/20261028130000_tenant_settings_admin_write.sql` — Kunden lesen
      ihre Einstellungen nur noch; `lead_email`, `lead_enabled` und Bot-Texte ändert nur
      der super_admin.
+   - `supabase/migrations/20261028140000_session_max_age.sql` — Datenbank lässt Browser-
+     Sitzungen höchstens 12 Stunden nach der Anmeldung zu (gilt auch im Free-Plan).
 3. **Bestand verschlüsseln** — lokal mit denselben Werten in `.env.local`
    (`vercel env pull .env.local` oder Schlüssel aus dem Passwortmanager eintragen):
    ```bash
@@ -55,10 +57,12 @@ jeweilige Projekt erledigt und geprüft ist.
    ```
    Der erste Aufruf zeigt nur an, was offen ist; der zweite schreibt. Danach erneut ohne
    `--write` ausführen — erwartet: „Keine Klartext-Tokens gefunden".
-4. **Sitzungsdauer serverseitig begrenzen:** Supabase → Authentication → Sessions →
-   „Inactivity timeout“ auf 1 Stunde (passt zur 60-Minuten-Regel im Dashboard), optional
-   „Time-box user sessions“. Die Dashboard-Regel allein wirkt nur im Browser; ohne diese
-   Einstellung bleibt ein kopierter Token bis zum Refresh-Ablauf gültig.
+4. **Sitzungsdauer serverseitig:** Jede Sitzung endet spätestens 12 Stunden nach der
+   Anmeldung — durchgesetzt von API (`lib/auth-server.ts`), Datenbank (Migration
+   `20261028140000`) und Dashboard (`lib/session-policy.ts`). Die 60-Minuten-Regel bei
+   Inaktivität wirkt weiterhin nur im Browser. Im Supabase-Pro-Plan zusätzlich
+   Authentication → Sessions → „Inactivity timeout“ auf 1 Stunde setzen; im Free-Plan
+   gibt es die Einstellung nicht (Restrisiko: ein kopierter Token bleibt bis zu 12 h nutzbar).
 5. **Region prüfen:** Vercel → Project → Settings → Functions → Region muss `fra1`
    zeigen (kommt aus `vercel.json`). Supabase → Project Settings → General → Region
    notieren (am 14.10.2026 technisch ermittelt: eu-west-1, Irland).
