@@ -66,8 +66,17 @@ und Verfügbarkeit des Dienstes).
 **Empfänger**
 - **IONOS Cloud GmbH, Elgendorfer Straße 57, 56410 Montabaur** — Erzeugung der Antworten
   (KI-Modelle: Mistral Small 24B für die Antworten, BGE-M3 für die Textähnlichkeitssuche).
-  Die Verarbeitung erfolgt ausschließlich in Rechenzentren in Deutschland. Ihre Eingaben
-  werden nicht zum Training der Modelle verwendet.
+  Die Verarbeitung erfolgt ausschließlich in Rechenzentren in Deutschland. IONOS ist als
+  Unterauftragsverarbeiter von Fusionary AI auf Grundlage eines Vertrags nach Art. 28 DSGVO
+  eingebunden. Ihre Eingaben werden nach Erzeugung der Antwort bei IONOS nicht gespeichert
+  und nicht zum Training der Modelle verwendet.
+  `[prüfen: (1) Vertragsentität laut IONOS-AVV bestätigen — das Impressum von
+  cloud.ionos.de nennt IONOS Cloud GmbH, die Muttergesellschaft ist IONOS SE (beide
+  Elgendorfer Straße 57, Montabaur); die Gesellschaft aus dem abgeschlossenen AVV
+  eintragen. (2) Keine Speicherung, kein Training, keine Unterauftragsverarbeiter: am
+  23.10.2026 nur der Produktdoku entnommen (docs.ionos.com → AI Model Hub → Data
+  Handling), nicht dem Vertrag. Im AVV bzw. in der Leistungsbeschreibung bestätigen;
+  falls dort nicht zugesagt, die beiden Aussagen streichen.]`
 - **Supabase Pte. Ltd. (Singapur)** — Datenbank für die gespeicherten Angaben. Speicherort:
   Rechenzentrum in der EU (AWS-Region eu-west-1, Irland).
   `[prüfen: Region im Supabase-Dashboard bestätigen (Project Settings → General); am
@@ -134,6 +143,14 @@ Gesundheitsdaten) und keine Zugangsdaten ein.
       aktive Integrationen, Auslieferung von widget.js)
 - [ ] Sicherheits-Migration und Env-Variablen eingerichtet → `docs/sicherheitsmassnahmen.md`
 - [ ] Auftragsverarbeitungsvertrag (Art. 28 DSGVO) mit dem Kunden geschlossen → @DATENSCHUTZ.md
-- [ ] TIA für den Drittlandtransfer beigelegt → @DATENSCHUTZ.md
+- [ ] Production nutzt IONOS: In Vercel sind `LLM_BASE_URL`
+      (`https://openai.inference.de-txl.ionos.com/v1`), `LLM_API_KEY`, `LLM_CHAT_MODEL` und
+      `LLM_EMBEDDING_MODEL` gesetzt. Fehlt `LLM_BASE_URL`, fällt `lib/llm.ts` auf
+      api.openai.com zurück — dann stimmt der Abschnitt „Empfänger" nicht mehr.
+- [ ] AVV mit IONOS abgeschlossen, datierte PDF-Kopie abgelegt (IONOS ist
+      Unterauftragsverarbeiter von Fusionary AI und gehört in die Anlage
+      „Unterauftragsverarbeiter" des Kunden-AVV)
+- [ ] TIA für den Drittlandtransfer beigelegt (Supabase, Vercel, Resend; die
+      KI-Verarbeitung bei IONOS ist kein Drittlandtransfer) → @DATENSCHUTZ.md
 - [ ] Kunde auf seine Betreiberpflichten nach KI-VO hingewiesen → @KI-VO.md
 - [ ] Kunde bestätigt, dass er den Baustein rechtlich prüfen lässt
