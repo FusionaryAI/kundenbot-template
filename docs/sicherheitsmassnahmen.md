@@ -31,11 +31,17 @@ jeweilige Projekt erledigt und geprüft ist.
    - `INTEGRATIONS_ENCRYPTION_KEY` = Ausgabe des Befehls (32 Byte, base64). **Im
      Passwortmanager sichern** — ohne ihn sind gespeicherte Integrations-Tokens verloren.
    - `RATE_LIMIT_SECRET` = zweiter, unabhängiger Wert aus demselben Befehl.
+   - `CRON_SECRET` = dritter, unabhängiger Wert. Ohne ihn lehnt der Monatsreport-Cron
+     jeden Aufruf ab (auch den von Vercel).
    - `NEXT_PUBLIC_BASE_URL` braucht die Lead-Erfassung nicht mehr (der Chat ruft sie
      direkt auf); der Monatsreport nutzt die Variable weiterhin.
-2. **Migration** `supabase/migrations/20261014120000_security_hardening.sql` im
-   Supabase SQL Editor ausführen (idempotent). Falls `pg_cron` fehlt: Database →
-   Extensions → pg_cron aktivieren.
+2. **Migrationen** im Supabase SQL Editor ausführen (alle idempotent):
+   - `supabase/migrations/20261014120000_security_hardening.sql`. Falls `pg_cron`
+     fehlt: Database → Extensions → pg_cron aktivieren.
+   - `supabase/migrations/20261028120000_core_tenant_rls.sql` — RLS und Policies für
+     Leads, Wissensbasis, Einstellungen und Rollen. **Ohne diese Migration liest jeder
+     mit dem öffentlichen Key alle Leads aller Kunden.** (Bis 28.10.2026 hieß die Datei
+     `supabase/rls-policies.sql`; wo sie schon lief, schadet die erneute Ausführung nicht.)
 3. **Bestand verschlüsseln** — lokal mit denselben Werten in `.env.local`
    (`vercel env pull .env.local` oder Schlüssel aus dem Passwortmanager eintragen):
    ```bash
@@ -56,6 +62,8 @@ jeweilige Projekt erledigt und geprüft ist.
    - `curl -i "https://<bot-domain>/api/chat?debug=1" -X POST -H 'content-type: application/json' -d '{"slug":"<slug>","message":"Hallo"}'`
      → normale Antwort, **keine** Felder `tenant`/`settings`/`matches`.
    - `curl -i -X POST https://<bot-domain>/api/integrations/notify` → 404.
+   - `curl -s "https://<projekt>.supabase.co/rest/v1/leads?select=id&limit=1" -H "apikey: <publishable-key>"`
+     → `[]` (ohne Login keine Leads).
    - Supabase: `select jobname, schedule from cron.job where jobname = 'purge-rate-limits';`
 
 ## widget.js von der Kundendomain ausliefern (empfohlen)

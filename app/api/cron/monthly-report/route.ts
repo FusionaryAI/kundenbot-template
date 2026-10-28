@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supaAdmin } from "@/lib/db";
+import { isAuthorizedCron } from "@/lib/security/cron-auth";
 
 export const runtime = "nodejs";
 // Allow up to 5 min — generating + sending many PDFs can take a while.
@@ -30,16 +31,13 @@ function baseUrl(): string {
  */
 export async function GET(req: NextRequest) {
   // --- Auth: Vercel Cron sendet "Authorization: Bearer <CRON_SECRET>" ---
+  // Ohne CRON_SECRET bleibt die Route zu (auch lokal: Wert in .env.local setzen).
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-    }
-  }
-  // If CRON_SECRET is unset we still run (e.g. manual trigger in dev), but log a warning.
   if (!cronSecret) {
-    console.warn("[cron/monthly-report] CRON_SECRET not set — route is unprotected.");
+    console.error("[cron/monthly-report] CRON_SECRET not set — refusing to run.");
+  }
+  if (!isAuthorizedCron(req.headers.get("authorization"), cronSecret)) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
   // --- Zeitraum: voriger voller Kalendermonat ---

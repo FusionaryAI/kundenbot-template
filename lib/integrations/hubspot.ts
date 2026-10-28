@@ -19,16 +19,22 @@ export const hubspotAdapter: IntegrationAdapter<Config> = {
   configSchema,
 
   async onLead(lead: LeadPayload, config: Config) {
-    const properties: Record<string, string> = {
-      firstname: lead.name?.split(" ")[0] ?? "",
-      lastname: lead.name?.split(" ").slice(1).join(" ") ?? "",
-      email: lead.email ?? "",
-      phone: lead.phone ?? "",
+    const candidates: Record<string, string | null | undefined> = {
+      firstname: lead.name?.split(" ")[0],
+      lastname: lead.name?.split(" ").slice(1).join(" "),
+      email: lead.email,
+      phone: lead.phone,
       message: lead.message,
       hs_lead_status: "NEW",
     };
+    // Leere Werte weglassen: HubSpot würde sonst vorhandene Eigenschaften leeren.
+    const properties = Object.fromEntries(
+      Object.entries(candidates).filter((entry): entry is [string, string] => !!entry[1]),
+    );
 
-    // Kontakt anlegen oder aktualisieren
+    // Nur neu anlegen. Den Lead reicht ein anonymer Besucher ein; er darf
+    // bestehende CRM-Kontakte des Kunden nicht verändern, auch wenn er deren
+    // E-Mail-Adresse kennt. Die Anfrage selbst kommt per Mail und im Dashboard an.
     const res = await fetch("https://api.hubapi.com/crm/v3/objects/contacts", {
       method: "POST",
       headers: {
@@ -40,21 +46,8 @@ export const hubspotAdapter: IntegrationAdapter<Config> = {
 
     const data = await res.json().catch(() => ({}));
 
-    // 409 = Kontakt existiert bereits → Update
-    if (res.status === 409 && data?.message?.includes("Contact already exists")) {
-      const existingId = data.message.match(/ID: (\d+)/)?.[1];
-      if (existingId) {
-        await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${existingId}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${config.api_key}`,
-          },
-          body: JSON.stringify({ properties }),
-        });
-      }
-      return { ok: true, updated: true };
-    }
+    // 409 = Kontakt existiert bereits → unverändert lassen.
+    if (res.status === 409) return { ok: true, existing: true };
 
     // Nur den Status melden: Die Antwort kann Kontaktdaten des Leads enthalten.
     if (!res.ok) throw new Error(`HubSpot error: ${res.status}`);

@@ -17,8 +17,14 @@
 --      Policies unten greifen automatisch.
 --
 --  ANWENDEN
+--    Bis 28.10.2026 lag dieses Skript als supabase/rls-policies.sql außerhalb
+--    der Migrationen und wurde manuell ausgeführt. Ohne es liefert PostgREST dem
+--    anon-Key alle Leads aller Tenants, und jeder eingeloggte Kunde könnte sich
+--    über user_roles zum super_admin machen. Deshalb jetzt Pflicht-Migration in
+--    jeder Installation (docs/sicherheitsmassnahmen.md, „Einrichtung je Projekt").
 --    Supabase Dashboard → SQL Editor → dieses Skript einfügen → RUN.
---    (Idempotent: kann mehrfach ausgeführt werden.)
+--    (Idempotent: kann mehrfach ausgeführt werden, auch dort, wo das alte
+--    Skript schon lief.)
 --
 --  ANNAHME: id / tenant_id / user_id sind vom Typ uuid. Falls bei euch text,
 --  Rückgabetyp der Helper-Funktionen unten auf text ändern.
@@ -120,6 +126,16 @@ create policy unanswered_questions_rw on public.unanswered_questions
   using (tenant_id = public.current_tenant_id() or public.is_super_admin())
   with check (tenant_id = public.current_tenant_id() or public.is_super_admin());
 
+-- ---------------------------------------------------------------------------
+-- 4) Schreibschutz zusätzlich über Tabellenrechte
+--    user_roles ist die einzige Quelle der super_admin-Autorität
+--    (lib/auth-server.ts). Fehlt RLS einmal (neue Tabelle, Restore), sollen
+--    Browser-Rollen sie trotzdem nicht beschreiben können. Geschrieben wird
+--    beides ausschließlich über die Service-Role (create-tenant,
+--    create-client-user, settings/wirkung).
+-- ---------------------------------------------------------------------------
+revoke insert, update, delete, truncate on public.user_roles, public.tenants from anon, authenticated;
+
 -- ============================================================================
 --  KONTROLLE NACH DEM AUSFÜHREN
 --    select tablename, rowsecurity from pg_tables where schemaname = 'public';
@@ -128,4 +144,8 @@ create policy unanswered_questions_rw on public.unanswered_questions
 --  TEST (sollte 0 Zeilen / Fehler liefern, OHNE eingeloggte Sitzung):
 --    Im SQL-Editor als 'anon' rolle oder per REST mit anon-Key:
 --    select * from leads;   -> keine Daten mehr.
+--
+--  Schreibschutz user_roles (beide Werte müssen 'false' sein):
+--    select has_table_privilege('authenticated', 'public.user_roles', 'UPDATE'),
+--           has_table_privilege('authenticated', 'public.user_roles', 'INSERT');
 -- ============================================================================

@@ -10,6 +10,15 @@ import { llm, chatModel, parseJsonReply } from "@/lib/llm";
 import { assessMatches, generateKbAnswer, ragSearch, type RagMatch } from "@/lib/rag";
 import { createLead, LeadError } from "@/lib/leads";
 import { checkRateLimit, RATE_LIMITS, tooManyRequests } from "@/lib/security/rate-limit";
+import {
+  MAX_MESSAGE_CHARS,
+  parseConversationId,
+  parseHandoff,
+  parseHistory,
+  parsePageContext,
+  type LeadType,
+  type PageContext,
+} from "@/lib/chat-request";
 
 export const runtime = "nodejs";
 
@@ -21,34 +30,6 @@ type TenantSettings = {
   lead_auto_reply?: string | null;
   public_contact_phone?: string | null;
   public_hours?: string | null;
-};
-
-type LeadType = "contact" | "appointment" | "callback";
-
-type PageContext = {
-  page_url?: string | null;
-  page_path?: string | null;
-  page_title?: string | null;
-  tenant_label?: string | null;
-  surface?: string | null;
-};
-
-type HandoffState = {
-  active: boolean;
-  stage?: "offered" | "collect_name" | "collect_contact" | "collect_message" | "ready";
-  lead_type?: LeadType;
-  name?: string;
-  first_name?: string | null;
-  last_name?: string | null;
-  email?: string;
-  phone?: string;
-  message?: string;
-  appointment_topic?: string | null;
-  appointment_window?: string | null;
-  offered_at_ts?: number;
-  completed?: boolean;
-  preferred_contact?: "email" | "phone";
-  page_context?: PageContext | null;
 };
 
 // RAG Schwellenwerte (erhöht für schärfere Antworten)
@@ -349,26 +330,6 @@ Nachricht: """${params.message}"""
 // Handoff Utils
 // --------------------
 
-function normalizeHandoff(h: any): HandoffState {
-  return {
-    active: !!h?.active,
-    stage: h?.stage,
-    lead_type: h?.lead_type,
-    name: h?.name,
-    first_name: h?.first_name ?? null,
-    last_name: h?.last_name ?? null,
-    email: h?.email,
-    phone: h?.phone,
-    message: h?.message,
-    appointment_topic: h?.appointment_topic ?? null,
-    appointment_window: h?.appointment_window ?? null,
-    offered_at_ts: h?.offered_at_ts,
-    completed: !!h?.completed,
-    preferred_contact: h?.preferred_contact,
-    page_context: h?.page_context ?? null,
-  };
-}
-
 function userSaysYes(text: string) {
   const t = text.trim().toLowerCase();
   return (
@@ -641,9 +602,6 @@ async function sendLead(
 // Handler
 // --------------------
 
-// Obergrenze je Nachricht: schützt LLM-Budget und Prompt vor Überlänge.
-const MAX_MESSAGE_CHARS = 2000;
-
 export async function POST(req: NextRequest) {
   const limit = await checkRateLimit(supaAdmin, req.headers, RATE_LIMITS.chat);
   if (limit.limited) return tooManyRequests(limit.retryAfterSeconds);
@@ -656,7 +614,7 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
-    const context: PageContext | null = (body?.context ?? null) as any;
+    const context = parsePageContext(body?.context);
     const url = new URL(req.url);
 
     const message =
@@ -675,10 +633,7 @@ export async function POST(req: NextRequest) {
     // Conversation tracking for ROI dashboard.
     // The widget sends a sessionStorage-backed UUID; if absent (legacy clients
     // or non-widget callers) we mint one so the row can still be created.
-    const incomingConvId =
-      typeof body?.conversation_id === "string" && body.conversation_id.trim()
-        ? body.conversation_id.trim()
-        : null;
+    const incomingConvId = parseConversationId(body?.conversation_id);
     const conversationId = incomingConvId ?? randomUUID();
     const priorMessages = Array.isArray(body?.messages) ? body.messages : [];
     // The widget sends `messages` BEFORE pushing the current user turn, so 0
@@ -686,15 +641,10 @@ export async function POST(req: NextRequest) {
     const priorUserCount = priorMessages.filter((m: any) => m?.role === "user").length;
     const isFirstUserMessage = !incomingConvId || priorUserCount === 0;
 
-    let handoff = normalizeHandoff(body.handoff);
+    let handoff = parseHandoff(body.handoff);
     if (!handoff.page_context && context) handoff.page_context = context;
 
-    const chatHistory: Array<{ role: "user" | "assistant"; content: string }> = Array.isArray(body?.messages)
-      ? (body.messages as any[])
-          .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string" && m.content.trim().length > 0)
-          .slice(-6)
-          .map((m) => ({ role: m.role, content: m.content as string }))
-      : [];
+    const chatHistory = parseHistory(body?.messages);
 
     if (!message) return NextResponse.json({ error: "message required" }, { status: 400 });
     if (typeof message !== "string" || message.length > MAX_MESSAGE_CHARS) {
