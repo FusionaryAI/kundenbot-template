@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supaAdmin } from "@/lib/db";
 import { requireTenantAccess } from "@/lib/auth-server";
+import { parseDateRange } from "@/lib/date-range";
 
 export const runtime = "nodejs";
 
@@ -15,12 +16,6 @@ type AnalyticsRow = {
   fallback_count: number | null;
   similarity_samples: number | null;
 };
-
-function parseDate(s: string | null, fallback: Date): Date {
-  if (!s) return fallback;
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? fallback : d;
-}
 
 function startOfDayUTC(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -52,9 +47,7 @@ export async function GET(req: NextRequest) {
     if ("error" in gate) return gate.error;
 
     const now = new Date();
-    const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const from = parseDate(url.searchParams.get("from"), defaultFrom);
-    const to = parseDate(url.searchParams.get("to"), now);
+    const { from, to } = parseDateRange(url.searchParams.get("from"), url.searchParams.get("to"), now);
 
     // Tenant config for ROI calculation
     const { data: tenant, error: tenantErr } = await supaAdmin

@@ -11,6 +11,14 @@ const configSchema = z.object({
 });
 type Config = z.infer<typeof configSchema>;
 
+// Slack wertet in mrkdwn <!channel>, <@U…> und <url|Text> als Steuer-Syntax aus.
+// Besucherwerte deshalb nach Slack-Vorgabe maskieren, sonst kann ein anonymer
+// Besucher Massen-Erwähnungen und getarnte Links im Team-Slack auslösen.
+function mrkdwn(value: string | null | undefined): string {
+  if (!value) return "–";
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function leadTypeLabel(type: string) {
   return type === "appointment" ? "📅 Terminanfrage"
     : type === "callback" ? "📞 Rückrufbitte"
@@ -41,15 +49,15 @@ export const slackAdapter: IntegrationAdapter<Config> = {
       {
         type: "section",
         fields: [
-          { type: "mrkdwn", text: `*Name:*\n${lead.name ?? "–"}` },
-          { type: "mrkdwn", text: `*E-Mail:*\n${lead.email ?? "–"}` },
-          { type: "mrkdwn", text: `*Telefon:*\n${lead.phone ?? "–"}` },
+          { type: "mrkdwn", text: `*Name:*\n${mrkdwn(lead.name)}` },
+          { type: "mrkdwn", text: `*E-Mail:*\n${mrkdwn(lead.email)}` },
+          { type: "mrkdwn", text: `*Telefon:*\n${mrkdwn(lead.phone)}` },
           { type: "mrkdwn", text: `*Typ:*\n${typeLabel}` },
         ],
       },
       {
         type: "section",
-        text: { type: "mrkdwn", text: `*Nachricht:*\n${lead.message}` },
+        text: { type: "mrkdwn", text: `*Nachricht:*\n${mrkdwn(lead.message)}` },
       },
     ];
 
@@ -57,8 +65,8 @@ export const slackAdapter: IntegrationAdapter<Config> = {
       blocks.push({
         type: "section",
         fields: [
-          { type: "mrkdwn", text: `*Thema:*\n${lead.appointment_topic ?? "–"}` },
-          { type: "mrkdwn", text: `*Zeitwunsch:*\n${lead.appointment_window ?? "–"}` },
+          { type: "mrkdwn", text: `*Thema:*\n${mrkdwn(lead.appointment_topic)}` },
+          { type: "mrkdwn", text: `*Zeitwunsch:*\n${mrkdwn(lead.appointment_window)}` },
         ],
       });
     }

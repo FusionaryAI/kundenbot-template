@@ -42,6 +42,9 @@ jeweilige Projekt erledigt und geprüft ist.
      Leads, Wissensbasis, Einstellungen und Rollen. **Ohne diese Migration liest jeder
      mit dem öffentlichen Key alle Leads aller Kunden.** (Bis 28.10.2026 hieß die Datei
      `supabase/rls-policies.sql`; wo sie schon lief, schadet die erneute Ausführung nicht.)
+   - `supabase/migrations/20261028130000_tenant_settings_admin_write.sql` — Kunden lesen
+     ihre Einstellungen nur noch; `lead_email`, `lead_enabled` und Bot-Texte ändert nur
+     der super_admin.
 3. **Bestand verschlüsseln** — lokal mit denselben Werten in `.env.local`
    (`vercel env pull .env.local` oder Schlüssel aus dem Passwortmanager eintragen):
    ```bash
@@ -52,10 +55,14 @@ jeweilige Projekt erledigt und geprüft ist.
    ```
    Der erste Aufruf zeigt nur an, was offen ist; der zweite schreibt. Danach erneut ohne
    `--write` ausführen — erwartet: „Keine Klartext-Tokens gefunden".
-4. **Region prüfen:** Vercel → Project → Settings → Functions → Region muss `fra1`
+4. **Sitzungsdauer serverseitig begrenzen:** Supabase → Authentication → Sessions →
+   „Inactivity timeout“ auf 1 Stunde (passt zur 60-Minuten-Regel im Dashboard), optional
+   „Time-box user sessions“. Die Dashboard-Regel allein wirkt nur im Browser; ohne diese
+   Einstellung bleibt ein kopierter Token bis zum Refresh-Ablauf gültig.
+5. **Region prüfen:** Vercel → Project → Settings → Functions → Region muss `fra1`
    zeigen (kommt aus `vercel.json`). Supabase → Project Settings → General → Region
    notieren (am 14.10.2026 technisch ermittelt: eu-west-1, Irland).
-5. **Kontrolle nach dem Deploy:**
+6. **Kontrolle nach dem Deploy:**
    - Kundenseite öffnen, DevTools → Netzwerk: vor dem Klick auf die Bubble **kein**
      Request auf `/embed/…`.
    - Erste Chat-Nachricht beginnt mit „Hier antwortet ein KI-Assistent."

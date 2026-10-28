@@ -22,8 +22,48 @@ test("Migrationen aktivieren RLS auf allen Kerntabellen", () => {
 });
 
 test("Migrationen enthalten die mandantenbindenden Policies", () => {
-  for (const policy of ["tenants_select", "user_roles_select", "tenant_settings_rw", "leads_rw", "knowledge_items_rw", "embeddings_rw"]) {
-    assert.ok(new RegExp(`create policy ${policy}\\b`).test(sql), `Policy fehlt: ${policy}`);
+  const expected: Record<string, string> = {
+    tenants: "tenants_select",
+    user_roles: "user_roles_select",
+    tenant_settings: "tenant_settings_select",
+    leads: "leads_rw",
+    knowledge_items: "knowledge_items_rw",
+    embeddings: "embeddings_rw",
+  };
+  for (const [table, policy] of Object.entries(expected)) {
+    assert.ok(finalPolicies(table).has(policy), `Policy fehlt nach allen Migrationen: ${policy}`);
+  }
+});
+
+/** Endzustand der Policies einer Tabelle nach allen Migrationen (create/drop in Dateireihenfolge). */
+function finalPolicies(table: string): Map<string, string> {
+  const policies = new Map<string, string>();
+  const stmt = new RegExp(
+    `(drop policy if exists (\\w+) on public\\.${table}\\b)|(create policy (\\w+) on public\\.${table}\\b[^;]*;)`,
+    "g",
+  );
+  for (const m of sql.matchAll(stmt)) {
+    if (m[2]) policies.delete(m[2]);
+    else policies.set(m[4], m[3]);
+  }
+  return policies;
+}
+
+test("tenant_settings: Kunden lesen, nur super_admin schreibt (lead_email, lead_enabled)", () => {
+  const policies = [...finalPolicies("tenant_settings").values()];
+  assert.ok(policies.some((p) => /for select/.test(p) && /current_tenant_id\(\)/.test(p)), "Lese-Policy für Kunden fehlt");
+  for (const p of policies.filter((p) => !/for select/.test(p))) {
+    assert.ok(!/current_tenant_id\(\)/.test(p), `Kunde darf schreiben: ${p.slice(0, 80)}`);
+    assert.ok(/is_super_admin\(\)/.test(p), "Schreib-Policy ohne super_admin-Bindung");
+  }
+});
+
+test("keine einzelne Migration gibt Kunden Schreibrechte auf tenant_settings (erneutes Ausführen bleibt sicher)", () => {
+  // Die Migrationen werden manuell und teils wiederholt ausgeführt. Eine ältere
+  // Datei darf die Einschränkung aus einer neueren deshalb nicht zurückdrehen.
+  for (const create of sql.match(/create policy \w+ on public\.tenant_settings\b[^;]*;/g) ?? []) {
+    if (/for select/.test(create)) continue;
+    assert.ok(!/current_tenant_id\(\)/.test(create), `Schreib-Policy für Kunden: ${create.slice(0, 60)}`);
   }
 });
 

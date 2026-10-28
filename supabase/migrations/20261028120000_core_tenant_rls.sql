@@ -89,13 +89,21 @@ create policy user_roles_select on public.user_roles
   for select
   using (user_id = auth.uid() or public.is_super_admin());
 
--- tenant-gebundene Tabellen: volle CRUD, aber strikt tenant-isoliert.
+-- tenant_settings: Kunden lesen, nur super_admin schreibt (lead_email, Bot-Texte).
+-- Gleicher Stand wie 20261028130000_tenant_settings_admin_write.sql, damit ein
+-- erneutes Ausführen dieser Datei die Einschränkung nicht zurückdreht.
 drop policy if exists tenant_settings_rw on public.tenant_settings;
-create policy tenant_settings_rw on public.tenant_settings
+drop policy if exists tenant_settings_select on public.tenant_settings;
+create policy tenant_settings_select on public.tenant_settings
+  for select
+  using (tenant_id = public.current_tenant_id() or public.is_super_admin());
+drop policy if exists tenant_settings_admin_write on public.tenant_settings;
+create policy tenant_settings_admin_write on public.tenant_settings
   for all
-  using (tenant_id = public.current_tenant_id() or public.is_super_admin())
-  with check (tenant_id = public.current_tenant_id() or public.is_super_admin());
+  using (public.is_super_admin())
+  with check (public.is_super_admin());
 
+-- übrige tenant-gebundene Tabellen: volle CRUD, aber strikt tenant-isoliert.
 drop policy if exists leads_rw on public.leads;
 create policy leads_rw on public.leads
   for all
