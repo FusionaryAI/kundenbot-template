@@ -55,8 +55,9 @@ const pageContextSchema = z
   .catch(null);
 
 const handoffSchema = z.object({
-  active: z.unknown().transform(Boolean),
-  completed: z.unknown().transform(Boolean),
+  // optional(): ab zod 4.6 gilt ein fehlender z.unknown()-Schlüssel sonst als Fehler.
+  active: z.unknown().optional().transform(Boolean),
+  completed: z.unknown().optional().transform(Boolean),
   stage: z.enum(["offered", "collect_name", "collect_contact", "collect_message", "ready"]).optional().catch(undefined),
   lead_type: z.enum(["contact", "appointment", "callback"]).optional().catch(undefined),
   preferred_contact: z.enum(["email", "phone"]).optional().catch(undefined),
