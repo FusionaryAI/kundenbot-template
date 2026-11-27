@@ -4,10 +4,13 @@
   var origin = (script?.dataset?.origin || window.location.origin).replace(/\/$/, "");
   if (!slug) { console.warn("widget: missing data-slug"); return; }
 
+  // Blase in Fusionary-Grün wie das Chatfenster (app/embed/[slug]/page.tsx).
+  // Bewusst nicht je Kunde einstellbar: Der Bot bleibt als Fusionary-Produkt
+  // erkennbar (Entscheidung 27.11.2026). Weiß auf #1a5c3a: 8,0 : 1.
   var style = document.createElement("style");
   style.textContent = `
   .pa-bubble{position:fixed; right:20px; bottom:20px; z-index:2147483000}
-  .pa-btn{width:56px;height:56px;border-radius:50%;background:#2563eb;color:#fff;border:none;box-shadow:0 10px 25px rgba(0,0,0,.2);cursor:pointer;font:600 16px system-ui}
+  .pa-btn{width:56px;height:56px;border-radius:50%;background:#1a5c3a;color:#fff;border:none;box-shadow:0 10px 25px rgba(0,0,0,.2);cursor:pointer;font:600 16px system-ui}
   .pa-panel{position:fixed; right:20px; bottom:90px; width:360px; max-width:calc(100vw - 40px); height:auto; border:0; box-shadow:0 10px 30px rgba(0,0,0,.2); border-radius:20px; overflow:hidden; display:none; z-index:2147483001}
   `;
   document.head.appendChild(style);
